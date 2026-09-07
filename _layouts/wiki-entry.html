@@ -42,9 +42,14 @@ scroll_gate: false
                 (optional — see _includes/wiki-infobox.html. Terms are
                 glossary keys; one with no entry renders as plain text)
 
-  revised, author and status are NOT declared per section. They are
-  read from the parent app, so twelve pages do not restate the same
-  three values. A section may still override any of them.
+  revised and status are NOT declared per section. They are read from
+  the parent app, so twelve pages do not restate the same two values.
+  A section may still override either of them.
+
+  The meta strip used to carry an Author line, inherited the same way.
+  It said "Josh Bailey" on every page of a personal site — a field
+  that never varies is not metadata. It now reports read time, which
+  does vary and is the thing a reader actually wants before starting.
 
   `kind` is still inherited the same way, but this layout no longer
   shows it: every section of an app carries the same one, so the meta
@@ -70,8 +75,19 @@ scroll_gate: false
 
 {%- comment -%} ---- metadata, inherited from the app unless overridden ---- {%- endcomment -%}
 {%- assign wk_revised = page.revised | default: wk_app.revised -%}
-{%- assign wk_author = page.author | default: wk_app.author -%}
 {%- assign wk_status = page.status | default: wk_app.status -%}
+
+{%- comment -%}
+  Words and read time come off ONE count so the meta strip can never
+  contradict itself. 200 wpm is the rate the essay page's own "~18 min"
+  is set at, so the two pages agree about what a minute of reading is.
+
+  The plus: 199 before the divide is a ceiling — Liquid's divided_by
+  floors on integers, and a 40-word stub should read "~1 min", not
+  "~0 min".
+{%- endcomment -%}
+{%- assign wk_words = page.content | strip_html | number_of_words -%}
+{%- assign wk_mins = wk_words | plus: 199 | divided_by: 200 -%}
 
 {%- comment -%} Position within the app, for the meta strip. {%- endcomment -%}
 {%- assign wk_idx = 0 -%}
@@ -167,8 +183,8 @@ scroll_gate: false
       <div class="wk-art__meta mono">
         <span><b>Entry</b>{{ wk_idx | plus: 1 | prepend: '0' | slice: -2, 2 }} / {{ wk_sections.size | prepend: '0' | slice: -2, 2 }}</span>
         <span><b>Revised</b>{{ wk_revised }}</span>
-        <span><b>Author</b>{{ wk_author }}</span>
-        <span><b>Words</b>{{ page.content | strip_html | number_of_words }}</span>
+        <span><b>Read time</b>~{{ wk_mins }} min</span>
+        <span><b>Words</b>{{ wk_words }}</span>
       </div>
 
       {%- if wk_status == 'draft' %}
