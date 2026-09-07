@@ -1,88 +1,53 @@
 ---
-layout: default
-title: Wiki — Projects — Josh Bailey
-description: Write-ups for the things I've built. What each one is, why it exists, how it works, and what it taught me — with a link out to the live app.
-scroll_gate: false
+layout: null
+sitemap: false
 ---
+{%- comment -%}
+=============================================================================
+  /projects/wiki/ — redirect to /projects/.
 
-<!-- =============================================================
-     /projects/wiki — the index of write-ups.
+  This was an index of write-ups, built from the site's own .work-*
+  components. It is gone because it was a second front door to the same
+  material: /projects/ already lists every project and already sends each
+  row to that project's write-up. Two pages listing the same two things,
+  one of them reachable only from a breadcrumb, is a fork in the path
+  with nothing at the end of it.
 
-     Deliberately built from the site's OWN .work-* components, the
-     same ones /projects/index.html uses. That means this page needs
-     nothing at all from assets/css/wiki.css: it inherits the type,
-     colour, rhythm, hover behaviour and reveal-on-scroll animation
-     that the projects landing page already has, and it will follow
-     any future change to them for free.
+  The path itself is kept and redirected rather than deleted. It was
+  linked from the wiki breadcrumb for the whole of the site's life so
+  far, so it is in browser histories and possibly in search results;
+  deleting it would turn those into 404s.
 
-     The list is generated from the app pages themselves — every page
-     whose layout is `wiki-app` — sorted by their `order` front matter.
-     There is no separate manifest to keep in sync; adding an app folder
-     under /projects/wiki/ adds a row here. The sections inside an app
-     are not listed: they are the app's own rail, not wiki-wide entries.
+  `layout: null` opts out of the `projects` scope in _config.yml, which
+  would otherwise wrap this in default.html and paint the full site
+  chrome on a page nobody is meant to see.
 
-     `scroll_gate: false` matches /projects: there is no hero to
-     read first, so the work should just be there. Per-element
-     reveal still runs.
-     ============================================================= -->
+  Three redirect mechanisms, for the same reason wiki-app.html emits
+  three: they fail in different situations. The refresh meta covers
+  no-JS, location.replace keeps the history entry clean so Back does not
+  bounce the reader straight forward again, and the real link covers
+  anything that honours neither. `noindex, follow` asks search engines to
+  drop this URL while still crediting /projects/. `sitemap: false` in
+  the front matter is the same instruction to jekyll-sitemap, which
+  GitHub Pages runs and the local build does not — it is inert here
+  and does the right thing there.
 
-{%- assign wk_entries = site.pages | where_exp: "p", "p.layout == 'wiki-app'" | sort: "order" -%}
-
-<section class="work" aria-labelledby="wiki-heading">
-  <header class="section-head">
-    <span class="mono-label">Project&nbsp;wiki</span>
-    <h1 id="wiki-heading" class="section-title section-title--display">How they work.</h1>
-  </header>
-
-  <p class="prose">
-    One entry per project: what it is, why it exists, how the thing
-    actually works underneath, and what broke on the way. Each entry
-    links out to the live app it describes — the apps themselves are
-    standalone and share no code with this site or with each other.
-  </p>
-
-  <ol class="work-list" role="list">
-
-    {%- for e in wk_entries %}
-    <li class="work-item work-item--featured">
-      <div class="work-meta">
-        <span class="mono">{{ e.kind }}</span>
-        <span class="mono-sep" aria-hidden="true">·</span>
-        <span class="mono">{{ e.group }}</span>
-        <span class="mono-sep" aria-hidden="true">·</span>
-        <span class="mono">Revised {{ e.revised }}</span>
-        {%- if e.status == 'draft' %}
-        <span class="mono-sep" aria-hidden="true">·</span>
-        <span class="mono">Draft</span>
-        {%- endif %}
-      </div>
-
-      <h3 class="work-title">
-        <a href="{{ e.url }}" class="work-link">{{ e.title }}</a>
-      </h3>
-
-      <p class="work-lede">{{ e.lede }}</p>
-
-      {%- if e.summary %}
-      <p class="work-body">{{ e.summary }}</p>
-      {%- endif %}
-
-      <dl class="work-attrs">
-        <div class="work-attr">
-          <dt class="mono-label">Kind</dt>
-          <dd>{{ e.kind }}</dd>
-        </div>
-        <div class="work-attr">
-          <dt class="mono-label">Author</dt>
-          <dd>{{ e.author }}</dd>
-        </div>
-        <div class="work-attr">
-          <dt class="mono-label">Entry</dt>
-          <dd>{{ forloop.index | prepend: '0' | slice: -2, 2 }} / {{ wk_entries.size | prepend: '0' | slice: -2, 2 }}</dd>
-        </div>
-      </dl>
-    </li>
-    {%- endfor %}
-
-  </ol>
-</section>
+  Nothing links here any more — the breadcrumb in wiki-entry.html now
+  goes Projects / <app> / <section>. This exists for old links only.
+=============================================================================
+{%- endcomment -%}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects — Josh Bailey</title>
+<link rel="canonical" href="{{ '/projects/' | absolute_url }}">
+<meta http-equiv="refresh" content="0; url=/projects/">
+<meta name="robots" content="noindex, follow">
+<script>location.replace("/projects/");</script>
+</head>
+<body>
+<p>Redirecting to <a href="/projects/">Projects</a>.</p>
+</body>
+</html>

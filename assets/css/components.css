@@ -140,7 +140,7 @@
    by which row is marked current. Everything inside the article
    itself still fades, so the swap reads as "this panel changed"
    rather than "the page reloaded".
-   Arriving from ANYWHERE ELSE — /projects/wiki/, another write-up, a
+   Arriving from ANYWHERE ELSE — /projects/, another write-up, a
    direct link, off-site — sets no .wk-continue, none of this applies,
    and the whole page performs its normal entrance. That is the point:
    a first arrival should look like one.

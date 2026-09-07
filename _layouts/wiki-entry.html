@@ -27,8 +27,8 @@ scroll_gate: false
   prose width it was designed around.
 
   `scroll_gate: false` too — a wiki section is straight into reference
-  content the moment it loads (crumb, title, lede), same as /projects/
-  and /projects/wiki/. There's no hero to hold the body back for.
+  content the moment it loads (crumb, title, lede), same as /projects/.
+  There's no hero to hold the body back for.
 
   Front matter a section page declares:
       layout:   wiki-entry          (required)
@@ -54,7 +54,11 @@ scroll_gate: false
   `kind` is still inherited the same way, but this layout no longer
   shows it: every section of an app carries the same one, so the meta
   strip repeated `Application` on all twelve pages and said nothing.
-  /projects/wiki/ still lists it, where the apps differ from each other.
+  Nothing else reads it now either — /projects/wiki/ used to, and is a
+  redirect to /projects/ as of this change. `kind`, `group`, `summary`
+  and `author` are all in that position now: left in the app front
+  matter rather than deleted, because they are true and an index that
+  wants them again should not have to re-derive them.
 
   Everything derived below — the rail, numbering, backlinks, pager,
   Entry status — is read from the section pages themselves at build time.
@@ -153,7 +157,7 @@ scroll_gate: false
     <!-- ===================================================================
          Left rail — this app's sections, grouped and numbered. Scoped to
          the app deliberately: the reader is navigating one write-up, and
-         the other write-ups are a click away on /projects/wiki/.
+         the other write-ups are a click away on /projects/.
          =================================================================== -->
     <aside class="wk-rail wk-rail--left" aria-label="{{ wk_app.title }} sections">
       {% include wiki-rail.html app=wk_app sections=wk_sections %}
@@ -164,10 +168,13 @@ scroll_gate: false
          =================================================================== -->
     <article class="wk-art">
 
+      {%- comment -%}
+        Projects / <app> / <section>. The Wiki hop between the first two
+        came out when /projects/wiki/ became a redirect to /projects/ —
+        it would have been two adjacent crumbs pointing at one page.
+      {%- endcomment -%}
       <p class="wk-crumb mono-label">
         <a href="/projects/">Projects</a>
-        <span class="wk-crumb__sep" aria-hidden="true">/</span>
-        <a href="/projects/wiki/">Wiki</a>
         <span class="wk-crumb__sep" aria-hidden="true">/</span>
         <a href="{{ wk_first.url }}">{{ wk_app.title }}</a>
         <span class="wk-crumb__sep" aria-hidden="true">/</span>
@@ -222,14 +229,20 @@ scroll_gate: false
       {%- capture wk_raw %}{{ content }}{% endcapture -%}
       {% include wiki-body.html html=wk_raw %}
 
+      {%- comment -%}
+        Backlinks, or nothing at all. This used to render a ruled-off
+        "Referenced by — nothing yet, an orphan entry" on any section
+        no other section had linked to, which is most of them: a heading,
+        a rule and a line of grey text to report an absence. The pager
+        below carries its own top margin and rule, so dropping the block
+        leaves the end of the article correctly spaced.
+      {%- endcomment -%}
+      {%- if wk_backs_count > 0 %}
       <div class="wk-back">
         <p class="wk-back__h mono-label">Referenced by</p>
-        <div class="wk-back__list">
-          {%- if wk_backs_count > 0 -%}{{ wk_backs_html }}
-          {%- else -%}<span class="wk-back__none mono">Nothing yet — an orphan entry.</span>
-          {%- endif -%}
-        </div>
+        <div class="wk-back__list">{{ wk_backs_html }}</div>
       </div>
+      {%- endif %}
 
       <nav class="wk-pager mono-label" aria-label="Wiki sections">
         {%- if wk_g > 0 -%}

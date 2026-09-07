@@ -12,16 +12,24 @@
       layout:   wiki-app            (required)
       slug:     gaffer-iq           (must match the folder name)
       order:    10                  (sort position across the wiki)
-      group:    Tools               (the wiki-wide category, shown on
-                                     /projects/wiki/ — NOT a rail heading;
-                                     a section's `group` is that, and the
-                                     two are never read by one template)
+      group:    Tools               (the wiki-wide category — NOT a rail
+                                     heading; a section's `group` is that,
+                                     and the two are never read by one
+                                     template)
       title:    Gaffer IQ
       kind:     Application
       revised:  2026-08-25
       author:   Josh Bailey
       lede:     one italic sentence
-      summary:  the paragraph /projects/wiki/ shows
+      summary:  a paragraph describing the write-up
+
+  Four of those — group, kind, author, summary — are currently read by
+  nothing. They fed /projects/wiki/, which listed every write-up and is
+  now a redirect to /projects/. Kept rather than deleted: they are
+  accurate, they cost a build nothing, and an index that wants them
+  back should not have to reconstruct them. title, slug, order, lede,
+  revised, status, app_url and info are all live — the section pages
+  and their rails read them.
       status:   draft               (optional)
       app_url:  /projects/apps/gaffer-iq/    (optional)
       info:     mapping of key/value rows for the infobox (optional)
