@@ -943,6 +943,23 @@ function pendingSectionHtml() {
     </section>`;
 }
 
+/**
+ * The gameweek this tab opens on, and the one its "now" button returns to.
+ *
+ * `upcomingGw` — the round still to be played — rather than FPL's `is_current`,
+ * which stays pointing at a round from its own deadline until the next one
+ * opens and so names a finished gameweek for most of every week. Landing on a
+ * round whose last whistle blew days ago made the pane read as stale on the
+ * very screen a reader opens to ask what is next. See engine/normalise.js
+ * deriveUpcomingGw; the raw flags stay as fallbacks for a payload that has not
+ * fully arrived.
+ *
+ * @returns {number}
+ */
+function homeGw() {
+  return store.getUpcomingGw() ?? store.getCurrentGw() ?? store.getNextGw() ?? FIRST_GW;
+}
+
 /** Keep the stepper label and its bounds in step with the selected GW. */
 function syncGwPicker(gw) {
   const label = _root.querySelector('#fx-gw-label');
@@ -954,7 +971,7 @@ function syncGwPicker(gw) {
   if (next) next.disabled = gw >= LAST_GW;
 
   const now = _root.querySelector('[data-fx-gw="now"]');
-  if (now) now.disabled = gw === (store.getCurrentGw() ?? store.getNextGw());
+  if (now) now.disabled = gw === homeGw();
 }
 
 // ─── Live payload (match events + appearances) ────────────────────────────────
@@ -1699,7 +1716,7 @@ function selectedId(id) {
 function seedSelections() {
   if (_teamId !== null && _h2hA !== null) return;
 
-  const gw = store.getCurrentGw() ?? store.getNextGw() ?? FIRST_GW;
+  const gw = homeGw();
   const fixtures = store.getFixtures();
   const first = fixtures.find(f => f.gw === gw) ?? fixtures[0] ?? null;
   if (!first) return;
@@ -1786,7 +1803,7 @@ function onGwStep(e) {
   const btn = e.target.closest('[data-fx-gw]');
   if (!btn || btn.disabled) return;
 
-  const home = store.getCurrentGw() ?? store.getNextGw() ?? FIRST_GW;
+  const home = homeGw();
   const next = btn.dataset.fxGw === 'prev' ? _gw - 1
              : btn.dataset.fxGw === 'next' ? _gw + 1
              : home;
@@ -1842,7 +1859,7 @@ function onScopeClick(e) {
 let _pendingRender = false;
 
 function onDataReady() {
-  if (_gw === null) _gw = store.getCurrentGw() ?? store.getNextGw() ?? FIRST_GW;
+  if (_gw === null) _gw = homeGw();
   seedSelections();
   populateTeamSelects();
 

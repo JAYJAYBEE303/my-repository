@@ -803,7 +803,7 @@ function renderThead() {
   const horizon    = HORIZONS[horizonKey] ?? HORIZONS.GW1;
 
   // Stamps the active horizon onto the table element. Nothing in components.css
-  // keys off it any more — the horizon is fixed at GW6 since the switcher was
+  // keys off it any more — the horizon is fixed at GW5 since the switcher was
   // removed, so the per-horizon width overrides were folded into the base
   // rules. Kept because it costs nothing and is the hook a restored switcher
   // would need back.

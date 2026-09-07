@@ -41,3 +41,32 @@ test('buildFixtureContextLabel falls back when there is no fixture data', () => 
   assert.equal(typeof buildFixtureContextLabel({}), 'string');
   assert.equal(typeof buildFixtureContextLabel(null), 'string');
 });
+
+test('buildFixtureContextLabel names the window when the horizon spans several GWs', () => {
+  // Since the Dashboard came off its GW1 lock the chip beside this line reads a
+  // multi-gameweek score, so naming one fixture and stopping would repeat the
+  // half-truth the double-gameweek case above was fixed for.
+  const label = buildFixtureContextLabel(
+    { perGw: [{ gw: 4, opponent: 'COV', venue: 'H', isBlank: false }] },
+    { label: 'Next 5 GWs', gws: 5 },
+  );
+  assert.equal(label, 'GW4 vs COV (H) · Next 5 GWs');
+});
+
+test('buildFixtureContextLabel names the window on a blank too', () => {
+  // The blank is the case that most needs it: a player can now be picked to
+  // start a gameweek he blanks, on the strength of the four behind it.
+  const label = buildFixtureContextLabel(
+    { perGw: [{ gw: 4, opponent: null, venue: null, isBlank: true }] },
+    { label: 'Next 5 GWs', gws: 5 },
+  );
+  assert.equal(label, 'GW4 — Blank · Next 5 GWs');
+});
+
+test('buildFixtureContextLabel adds no window suffix on a one-GW horizon', () => {
+  const label = buildFixtureContextLabel(
+    { perGw: [{ gw: 4, opponent: 'COV', venue: 'H', isBlank: false }] },
+    { label: 'This GW', gws: 1 },
+  );
+  assert.equal(label, 'GW4 vs COV (H)');
+});

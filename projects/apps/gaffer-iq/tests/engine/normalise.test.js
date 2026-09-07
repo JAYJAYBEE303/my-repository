@@ -6,7 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normaliseFixture, deriveUpcomingGw } from '../../js/engine/normalise.js';
+import {
+  normaliseFixture, deriveUpcomingGw, deriveEventCompletion,
+} from '../../js/engine/normalise.js';
 
 test('normaliseFixture flags a provisional kickoff time', () => {
   // FPL sets provisional_start_time while a kickoff is unconfirmed — often the
@@ -78,4 +80,66 @@ test('deriveUpcomingGw steps past the last finished gameweek of the season', () 
 
 test('deriveUpcomingGw falls back to gameweek 1 with no events at all', () => {
   assert.equal(deriveUpcomingGw([]), 1);
+});
+
+// ─── deriveEventCompletion ────────────────────────────────────────────────────
+
+test('deriveEventCompletion marks a round complete once every match has been played', () => {
+  // THE DEFECT. FPL's event.finished waits for BONUS CONFIRMATION, not full
+  // time — on 2026-09-07 all ten GW3 matches read finished_provisional with
+  // event 3 still finished:false. The rails, which read fixture-level `played`,
+  // had already moved to GW4 while the Full Season strip and the Outlook
+  // window, anchored on the event flag, were still offering GW3.
+  const events   = [{ id: 3, finished: false, isCurrent: true, isNext: false }];
+  const fixtures = [
+    { id: 1, gw: 3, played: true },
+    { id: 2, gw: 3, played: true },
+  ];
+  assert.deepEqual(deriveEventCompletion(events, fixtures), [
+    { id: 3, finished: false, isCurrent: true, isNext: false, complete: true },
+  ]);
+});
+
+test('deriveEventCompletion leaves a round with football still to come incomplete', () => {
+  const events   = [{ id: 3, finished: false, isCurrent: true, isNext: false }];
+  const fixtures = [
+    { id: 1, gw: 3, played: true },
+    { id: 2, gw: 3, played: false },
+  ];
+  assert.equal(deriveEventCompletion(events, fixtures)[0].complete, false);
+});
+
+test('deriveEventCompletion ignores postponed fixtures with no gameweek', () => {
+  // gw === null is a fixture awaiting a rearranged date. It is not a pending
+  // result for any round, so it must not hold one open.
+  const events   = [{ id: 3, finished: false, isCurrent: true, isNext: false }];
+  const fixtures = [
+    { id: 1, gw: 3,    played: true },
+    { id: 2, gw: null, played: false },
+  ];
+  assert.equal(deriveEventCompletion(events, fixtures)[0].complete, true);
+});
+
+test('deriveEventCompletion falls back to the raw flag for a round with no fixtures', () => {
+  // An empty every() is true, which would report a round nobody has played as
+  // finished — e.g. before the fixtures payload lands.
+  const events = [
+    { id: 3, finished: false, isCurrent: true,  isNext: false },
+    { id: 2, finished: true,  isCurrent: false, isNext: false },
+  ];
+  const done = deriveEventCompletion(events, []);
+  assert.equal(done[0].complete, false);
+  assert.equal(done[1].complete, true);
+});
+
+test('deriveUpcomingGw moves past a current gameweek whose matches are all played', () => {
+  // The event flag says otherwise; the fixtures are the authority.
+  const events = deriveEventCompletion(
+    [
+      { id: 3, finished: false, isCurrent: true,  isNext: false },
+      { id: 4, finished: false, isCurrent: false, isNext: true  },
+    ],
+    [{ id: 1, gw: 3, played: true }, { id: 2, gw: 4, played: false }],
+  );
+  assert.equal(deriveUpcomingGw(events), 4);
 });

@@ -343,10 +343,11 @@ has regressed back to ordering by `score.value` instead of
       `window.__engine.buildVerdict(swaps, { flexibility: window.__engine.calcSquadFlexibility(squad, scoresById), xiEntries: [], freeTransfers: 1, chipRecs: {} }, ctx).promotedBy`
       is non-null.
 - [ ] **Dashboard and Planner agree on the projected XI.** Score the same
-      squad both ways and compare — Dashboard is horizon-locked to `GW1`, so
-      match that before comparing sets:
+      squad both ways and compare. Both pages now read the SAME global horizon
+      (`store.getActiveHorizon()`, default `GW5`), so no horizon-matching step
+      is needed and any difference in the numbers is a real defect:
       ```js
-      const horizon = config.HORIZONS.GW1;
+      const horizon = config.HORIZONS[s.getActiveHorizon()];
       const scored = s.getSquad().map(id => {
         const player = s.getPlayer(id);
         return { player, score: window.__engine.scorePlayer(player, horizon, ctx) };
@@ -354,10 +355,19 @@ has regressed back to ordering by `score.value` instead of
       const { xi, bench } = window.__engine.pickStartingXI(scored);
       xi.map(e => e.player.name).sort();   // compare against the Dashboard's rendered Starting XI
       ```
-      **They will legitimately differ under the Planner's own default horizon**
-      (`GW6`, `store.js`) — that is by design, not a bug (captaincy cares about
-      next week only; transfer planning is horizon-aware). Only compare under
-      matching horizons.
+      The Dashboard's old `GW1` lock was removed because one player carried two
+      different ratings across the two pages with nothing on screen to explain
+      which window each answered. The accepted cost: this XI is picked on a
+      multi-gameweek average, so a player who BLANKS in the upcoming gameweek
+      can still be picked to start it.
+
+      One divergence survives and is expected: the two pages anchor their
+      window on different gameweeks MID-ROUND. The Dashboard reads `upcomingGw`
+      (advances at full time — it reports on the round being played), the
+      Planner `planningGw` (advances at KICKOFF — a deadline that has gone
+      cannot be planned into). Between rounds they are the same gameweek and
+      the ratings match exactly; from a Saturday kickoff to the last whistle
+      they are one apart and the ratings will differ again.
 - [ ] **Saved picks are held in the store, and cleared by a manual edit.**
       ```js
       const picks = s.getSquad().map((id, i) => ({ playerId: id, slot: i + 1, isCaptain: i === 0, isViceCaptain: i === 1 }));

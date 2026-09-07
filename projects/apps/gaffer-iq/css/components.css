@@ -672,6 +672,28 @@
    has to ask whether the difference means something. The deep #1f6feb this
    used to be lost that argument for the same reason it lost it as a band —
    at 11px on this ground it is the one hue that has to be hunted for. */
+/* Clearing the band's CHROME is as much a part of taking over the colour as
+   setting background and color is. Two of the seven bands paint more than
+   those two properties: --excellent carries an inset gold ring plus a gold
+   outer glow and a silver-on-gold text-shadow, and --extreme an inset dark-red
+   ring. Those are not colour properties, so the five rules below were not
+   overriding them — an 80+ player who was not also rank 1 of his position
+   rendered as a GOLD-ringed, gold-glowing chip filled and lettered in his
+   rank tier's green or blue, reading as a chip that could not decide which
+   tier it was, with the leftover glow smearing the digits. Reset here rather
+   than by narrowing the band rules, because the band is right to paint chrome
+   when nothing overrides it — this block is the thing doing the overriding.
+   .score-chip--rank-gold below is deliberately absent: it sets both shadows
+   itself, being the gold tier's own twin. */
+.score-chip--rank-green,
+.score-chip--rank-light-green,
+.score-chip--rank-red,
+.score-chip--rank-neutral,
+.score-chip--rank-yellow {
+  box-shadow: none;
+  text-shadow: none;
+}
+
 .score-chip--rank-green       { background: var(--band-dark-green-bg); color: var(--band-dark-green); }
 .score-chip--rank-light-green { background: var(--band-light-blue-bg); color: var(--band-light-blue); }
 .score-chip--rank-red         { background: var(--band-red-bg);        color: var(--band-red); }
@@ -1293,7 +1315,7 @@
 
 /* ═══════════════════════════════════════════════════════════════════════════
    HORIZON OUTLOOK SECTION — scoreOverHorizon perGw strip + aggregate
-   Appears in the matchup card when the active horizon is GW3 or GW6.
+   Appears in the matchup card when the active horizon is longer than one GW.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .horizon-summary {
@@ -1823,9 +1845,11 @@
 .ranker-table {
   width: 100%;
   /* Floor beneath which nothing shrinks. Sized for the only horizon that now
-     exists: the switcher was removed and the horizon is fixed at 6 GWs, so
-     the fixtures column always carries 6 cells and the old narrower 1150px
-     floor (plus its [data-horizon="GW6"] override) had no remaining purpose.
+     exists: the switcher was removed and the horizon is fixed at 5 GWs, so
+     the fixtures column carries a fixed cell count and the old narrower 1150px
+     floor (plus its per-horizon override) had no remaining purpose. Left at
+     the width the 6-GW strip needed: the 5-cell strip simply sits in a
+     slightly roomier column, and narrowing it would reflow every other one.
      Sized to clear a 1080p viewport without a horizontal scrollbar — the first
      pass at 1560px overflowed one by roughly a third of the last column.
      Below this, .ranker-table-wrap's overflow-x:auto takes over, same as any
@@ -1978,9 +2002,9 @@
 .ranker-table__td--next-fixture .score-chip--estimated::before {
   content: none;
 }
-/* The fixture strip's cell count scales with the active horizon (1/3/6 GWs);
+/* The fixture strip's cell count scales with the active horizon (1/3/5 GWs);
    .ranker-fixtures/.pgw-cell (below) handle fitting that into this column's
-   fixed width by shrinking cells together on a 6-GW horizon, so this td
+   fixed width by shrinking cells together on the longest horizon, so this td
    itself needs no special overflow handling. */
 .ranker-table__td--fixtures      { white-space: nowrap; }
 .ranker-table__td--min           { white-space: nowrap; }
@@ -6550,135 +6574,6 @@ img.fx-crest {
 .dash-squad-slot__diff--started { color: var(--band-amber); }
 .dash-squad-slot__diff--armband { color: var(--band-orange); font-weight: 700; }
 
-/* WHERE THIS LIVES, AND WHY IT IS LAST IN THE FILE.
-   A skeleton is composed onto the real component's class
-   (`class="breakdown-row__bar skeleton"`), and several of those components set
-   `background` at the same specificity this block does — .breakdown-row__bar
-   paints itself --color-muted, for one. Equal specificity means source order
-   decides, so the skeleton fill only reliably wins from the bottom of the
-   file. Keep this block last; moving it up silently returns those skeletons to
-   whatever colour their component paints, with no error anywhere to say so. */
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   SKELETON — placeholder for a value that is still settling
-   ---------------------------------------------------------------------------
-   WHAT IT IS FOR. A CompositeScore is a weighted blend, and one of its
-   components (counter-matchup) cannot be computed until that team's Understat
-   payload lands during the boot-time prefetch. Before this existed the score
-   rendered anyway and then silently rewrote itself a second or two later — a
-   number that looks final and is not. A skeleton says "not yet" for exactly as
-   long as that is true, and is replaced by the settled number.
-
-   HOW TO USE IT. Compose, don't replace: put `skeleton` ON the element that
-   would have carried the value, alongside its normal structural class, and
-   OMIT the band modifier.
-
-       <span class="score-chip skeleton">…</span>     not  <span class="skeleton">
-       <div class="score-pill skeleton">…</div>
-       <div class="pgw-cell skeleton"></div>
-
-   The structural class keeps the element's exact footprint — padding, min-width,
-   line-height — so the settled value drops in with no layout shift, and there
-   is no second set of sizes here to keep in step with the real components.
-   Skeletons keep their placeholder text (rendered transparent) for the same
-   reason: it is what gives a text-sized box its height.
-
-   The band modifier is what must be left off. Band backgrounds and the
-   skeleton fill are the same specificity, so emitting both would leave the
-   winner decided by source order — an unsettled score would read as a real
-   band-coloured chip. Omitting it makes that unrepresentable rather than
-   merely discouraged.
-
-   Skeletons are decorative and carry no information, so mark them
-   `aria-hidden="true"` and put `aria-busy="true"` on the region that owns them.
-   ═══════════════════════════════════════════════════════════════════════════ */
-
-.skeleton {
-  /* Transparent text, not empty markup: the placeholder characters size the
-     box to the same line height the real value will occupy. */
-  color: transparent;
-  /* The placeholder text is a sizing device, not content — never let it be
-     selected or copied as if it were a real value. */
-  user-select: none;
-  /* Deliberately NOT pointer-events:none. Some skeletons sit on elements that
-     are navigation as well as value — a per-gameweek strip cell is a link to
-     that fixture's card whether or not its score has settled — and disabling
-     the element wholesale would take the navigation away for the few seconds
-     the number is still arriving. Withhold the VALUE, not the affordance. */
-  /* Deliberately no border rule: each composed element keeps its own, so a
-     skeleton score pill still shows the pill's outline and a skeleton chip
-     still has none. The one thing a skeleton must always win is the FILL. */
-  background-color: var(--color-skeleton);
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--color-skeleton-highlight) 50%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  background-repeat: no-repeat;
-  animation: skeleton-sweep var(--skeleton-shimmer-duration) linear infinite;
-}
-
-/* Any nested text (a score pill's value/band spans) inherits the transparency
-   rather than punching through with its own band colour. */
-.skeleton * {
-  color: transparent;
-}
-
-@keyframes skeleton-sweep {
-  from { background-position: 100% 0; }
-  to   { background-position: 0 0; }
-}
-
-/* The shimmer is the only thing that distinguishes a skeleton from an empty
-   box, so when motion is unwelcome it becomes a flat tone that still reads as
-   a filled placeholder — not simply an animation switched off. */
-@media (prefers-reduced-motion: reduce) {
-  .skeleton {
-    animation: none;
-    background-image: none;
-    background-color: var(--color-skeleton-highlight);
-  }
-}
-
-/* A standalone placeholder line, for regions with no existing element to
-   compose onto — a loading pane, a recommendation panel, a table row. Fills
-   its container's width, so the container chooses how wide a line reads. */
-.skeleton--text {
-  display: block;
-  width: 100%;
-  height: 1.1rem;
-  border-radius: var(--radius-sm);
-}
-
-/* Placeholder Ranker rows. The real row is a button (it opens that player in
-   the Matchup Analyser), so the skeleton has to give up the affordances that
-   promise — there is no player behind it to open. This is the exception to the
-   "withhold the value, not the affordance" rule above: elsewhere the element
-   still leads somewhere real. */
-.ranker-table__row--skeleton {
-  cursor: default;
-}
-
-.ranker-table__row--skeleton:hover {
-  background: transparent;
-}
-
-/* Stack of placeholder lines with the rhythm of body copy. */
-.skeleton-lines {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-}
-
-/* Successive lines shorten, so the block reads as a paragraph rather than a
-   grey rectangle. */
-.skeleton-lines .skeleton--text:last-child {
-  width: 60%;
-}
-
 /* ═══════════════════════════════════════════════════════════════════════════
    FULL SEASON STRIP — GW1-38 planning ribbon (Matchup page)
    js/modules/fullSeason.js. Task 8 ships the collapsed ribbon only: the
@@ -6833,6 +6728,25 @@ img.fx-crest {
 .season-gw:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* A column whose week has not been computed yet — every column on the strip,
+   until the background player pass has finished all 38 (fullSeason.js
+   runPlayerPass). Its tiles and dots carry `skeleton`; this rule only takes
+   away the affordances the settled column promises.
+
+   This is CONVENTIONS.md §5.4's "skeleton the value, not the affordance"
+   exception, the same one .ranker-table__row--skeleton takes: a column's
+   affordance is "open this week's panel", and the panel IS the pending
+   value — there is nothing behind it to open yet. columnHTML's skeleton twin
+   correspondingly emits no role/tabindex/aria-expanded, so this is only the
+   pointer half of a promise already withheld in the markup. */
+.season-gw--pending {
+  cursor: default;
+}
+
+.season-gw--pending:hover {
+  border-color: var(--color-border-subtle);
 }
 
 .season-gw--past {
@@ -7470,4 +7384,142 @@ img.fx-crest {
   font-size: 0.6875rem;
   color: var(--color-muted);
   white-space: normal;
+}
+
+/* WHERE THIS LIVES, AND WHY IT IS LAST IN THE FILE.
+   A skeleton is composed onto the real component's class
+   (`class="breakdown-row__bar skeleton"`), and several of those components set
+   `background` at the same specificity this block does — .breakdown-row__bar
+   paints itself --color-muted, for one. Equal specificity means source order
+   decides, so the skeleton fill only reliably wins from the bottom of the
+   file. Keep this block last; moving it up silently returns those skeletons to
+   whatever colour their component paints, with no error anywhere to say so.
+
+   That is exactly what had happened: the FULL SEASON STRIP section was
+   appended BELOW this block, which quietly demoted it. .season-prow__px and
+   .season-prow__pts paint their own colour and background, so the expanded
+   panel's placeholder player rows (skeletonPlayerRowsHTML) rendered as
+   readable muted text on a real pill rather than as skeletons; .season-gw__dot
+   would have done the same to the ribbon's own placeholder dots. This block
+   has been moved back to the bottom, restoring both. Append new sections
+   ABOVE it. */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SKELETON — placeholder for a value that is still settling
+   ---------------------------------------------------------------------------
+   WHAT IT IS FOR. A CompositeScore is a weighted blend, and one of its
+   components (counter-matchup) cannot be computed until that team's Understat
+   payload lands during the boot-time prefetch. Before this existed the score
+   rendered anyway and then silently rewrote itself a second or two later — a
+   number that looks final and is not. A skeleton says "not yet" for exactly as
+   long as that is true, and is replaced by the settled number.
+
+   HOW TO USE IT. Compose, don't replace: put `skeleton` ON the element that
+   would have carried the value, alongside its normal structural class, and
+   OMIT the band modifier.
+
+       <span class="score-chip skeleton">…</span>     not  <span class="skeleton">
+       <div class="score-pill skeleton">…</div>
+       <div class="pgw-cell skeleton"></div>
+
+   The structural class keeps the element's exact footprint — padding, min-width,
+   line-height — so the settled value drops in with no layout shift, and there
+   is no second set of sizes here to keep in step with the real components.
+   Skeletons keep their placeholder text (rendered transparent) for the same
+   reason: it is what gives a text-sized box its height.
+
+   The band modifier is what must be left off. Band backgrounds and the
+   skeleton fill are the same specificity, so emitting both would leave the
+   winner decided by source order — an unsettled score would read as a real
+   band-coloured chip. Omitting it makes that unrepresentable rather than
+   merely discouraged.
+
+   Skeletons are decorative and carry no information, so mark them
+   `aria-hidden="true"` and put `aria-busy="true"` on the region that owns them.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.skeleton {
+  /* Transparent text, not empty markup: the placeholder characters size the
+     box to the same line height the real value will occupy. */
+  color: transparent;
+  /* The placeholder text is a sizing device, not content — never let it be
+     selected or copied as if it were a real value. */
+  user-select: none;
+  /* Deliberately NOT pointer-events:none. Some skeletons sit on elements that
+     are navigation as well as value — a per-gameweek strip cell is a link to
+     that fixture's card whether or not its score has settled — and disabling
+     the element wholesale would take the navigation away for the few seconds
+     the number is still arriving. Withhold the VALUE, not the affordance. */
+  /* Deliberately no border rule: each composed element keeps its own, so a
+     skeleton score pill still shows the pill's outline and a skeleton chip
+     still has none. The one thing a skeleton must always win is the FILL. */
+  background-color: var(--color-skeleton);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-skeleton-highlight) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-sweep var(--skeleton-shimmer-duration) linear infinite;
+}
+
+/* Any nested text (a score pill's value/band spans) inherits the transparency
+   rather than punching through with its own band colour. */
+.skeleton * {
+  color: transparent;
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 100% 0; }
+  to   { background-position: 0 0; }
+}
+
+/* The shimmer is the only thing that distinguishes a skeleton from an empty
+   box, so when motion is unwelcome it becomes a flat tone that still reads as
+   a filled placeholder — not simply an animation switched off. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background-image: none;
+    background-color: var(--color-skeleton-highlight);
+  }
+}
+
+/* A standalone placeholder line, for regions with no existing element to
+   compose onto — a loading pane, a recommendation panel, a table row. Fills
+   its container's width, so the container chooses how wide a line reads. */
+.skeleton--text {
+  display: block;
+  width: 100%;
+  height: 1.1rem;
+  border-radius: var(--radius-sm);
+}
+
+/* Placeholder Ranker rows. The real row is a button (it opens that player in
+   the Matchup Analyser), so the skeleton has to give up the affordances that
+   promise — there is no player behind it to open. This is the exception to the
+   "withhold the value, not the affordance" rule above: elsewhere the element
+   still leads somewhere real. */
+.ranker-table__row--skeleton {
+  cursor: default;
+}
+
+.ranker-table__row--skeleton:hover {
+  background: transparent;
+}
+
+/* Stack of placeholder lines with the rhythm of body copy. */
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+/* Successive lines shorten, so the block reads as a paragraph rather than a
+   grey rectangle. */
+.skeleton-lines .skeleton--text:last-child {
+  width: 60%;
 }

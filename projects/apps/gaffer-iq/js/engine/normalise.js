@@ -353,6 +353,55 @@ export function normalisePlayerSummary(raw) {
 }
 
 /**
+ * Stamp each event with `complete` — whether its football is actually over.
+ *
+ * MODEL: FPL's `event.finished` does NOT flip at full time. Like the fixture
+ * flag of the same name it waits for BONUS CONFIRMATION, which lands hours
+ * after the last whistle and, across an international break, can sit unset for
+ * days. On 2026-09-07 all ten GW3 matches read `finished_provisional` while
+ * event 3 still read `finished: false` — so every view anchored on the event
+ * flag (Full Season strip, the Matchup Outlook window, the Ranker horizon) was
+ * still offering a round that had finished the previous afternoon, while the
+ * fixture rails beside them, reading `played`, had already moved on.
+ *
+ * The fixtures are the authority: a round is complete when every fixture
+ * assigned to it has been played. This is the event-level twin of the
+ * `finished || finished_provisional` rule normaliseFixture already applies —
+ * see its comment for why reading `finished` alone is never enough.
+ *
+ * `event.finished` stays as a floor. Once FPL agrees, so do we.
+ *
+ * Two exclusions, both deliberate:
+ *   - Fixtures with `gw === null` are postponed and awaiting a rearranged
+ *     date. They are not a pending result for any round and must not hold one
+ *     open.
+ *   - A round with NO fixtures assigned falls back to the raw flag. An empty
+ *     `every()` is true, which would otherwise report a round nobody has
+ *     played as finished — the state before the fixtures payload lands.
+ *
+ * @param {{id: number, finished: boolean}[]} events
+ * @param {{gw: number|null, played: boolean}[]} fixtures  normalised fixtures
+ * @returns {object[]} the same events, each with an added `complete` boolean
+ */
+export function deriveEventCompletion(events, fixtures) {
+  const total  = new Map();   // gw -> fixtures assigned
+  const played = new Map();   // gw -> fixtures already played
+
+  for (const f of fixtures || []) {
+    if (f.gw === null || f.gw === undefined) continue;
+    total.set(f.gw, (total.get(f.gw) || 0) + 1);
+    if (f.played) played.set(f.gw, (played.get(f.gw) || 0) + 1);
+  }
+
+  return (events || []).map(e => ({
+    ...e,
+    complete: total.has(e.id)
+      ? Boolean(e.finished) || (played.get(e.id) || 0) === total.get(e.id)
+      : Boolean(e.finished),
+  }));
+}
+
+/**
  * The earliest gameweek that still has football to come.
  *
  * MODEL: FPL's `is_current` is NOT "the round we are looking forward to". It
@@ -374,7 +423,10 @@ export function normalisePlayerSummary(raw) {
  * live alongside `currentGw`, which the Dashboard's live scoreboard and
  * calibration's snapshot still want in its raw FPL meaning.
  *
- * @param {{id: number, finished: boolean, isCurrent: boolean, isNext: boolean}[]} events
+ * @param {{id: number, finished: boolean, complete?: boolean,
+ *          isCurrent: boolean, isNext: boolean}[]} events
+ *   `complete` from deriveEventCompletion — the round's real full-time state.
+ *   Falls back to the raw `finished` flag when absent.
  * @returns {number} a gameweek id; 1 when there is nothing to go on
  */
 export function deriveUpcomingGw(events) {
@@ -383,7 +435,7 @@ export function deriveUpcomingGw(events) {
   const nextId  = list.find(e => e.isNext)?.id ?? null;
 
   if (!current) return nextId ?? 1;
-  if (!current.finished) return current.id;
+  if (!(current.complete ?? current.finished)) return current.id;
 
   // Finished. `is_next` is null after the final gameweek of a season, and one
   // past the end is the honest answer there: every gameweek then reads as
@@ -460,9 +512,12 @@ export function normaliseSeason(rawBootstrap, rawFixtures) {
     name: et.singular_name,
   }));
 
-  const events = (rawBootstrap.events || []).map(e => ({
+  const rawEvents = (rawBootstrap.events || []).map(e => ({
     id:           e.id,
     deadline:     e.deadline_time,
+    // Raw FPL: true only once BONUS is confirmed, which is not full time. Read
+    // `complete` below for "has this round been played". Kept because the
+    // Dashboard's bonus-sensitive displays legitimately want the raw signal.
     finished:     Boolean(e.finished),
     // data_checked becomes true once FPL has processed at least one fixture's
     // live data — used by dashboard.js to distinguish "live" from "pre-deadline".
@@ -471,6 +526,10 @@ export function normaliseSeason(rawBootstrap, rawFixtures) {
     isNext:       Boolean(e.is_next),
     averageScore: e.average_entry_score || 0,
   }));
+
+  // `complete` — full time by the fixtures, not by FPL's bonus clock. Stamped
+  // here so every view shares one answer to "is this round over".
+  const events = deriveEventCompletion(rawEvents, sortedFixtures);
 
   const teamsById    = Object.fromEntries(teams.map(t => [t.id, t]));
   const playersById  = Object.fromEntries(players.map(p => [p.id, p]));

@@ -3,9 +3,9 @@
  * Layer: module. Owns the DOM for the GW Decision Dashboard view.
  * Side effects: DOM writes, sessionStorage reads/writes, network (live poll).
  * Reads from store; delegates all scoring to engine/composite.js exclusively.
- * No analytical logic lives here — scorePlayer(player, HORIZONS.GW1, ctx)
- * is the sole engine call. Horizon is locked to GW1; the global horizon
- * switcher has no effect on this module. See ROADMAP.md Phase 2C.
+ * No analytical logic lives here — scorePlayer(player, getHorizon(), ctx)
+ * is the sole engine call, over the SAME global horizon the Planner reads.
+ * See ROADMAP.md Phase 2C.
  *
  * Live points (Phase 3C-5):
  *   - When the current GW is live (finished=false, dataChecked=true), the module
@@ -30,8 +30,28 @@ import { fetchAndMapSquad, loadSavedTeamId, saveTeamId, resolveImportGw } from '
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Dashboard is horizon-locked to GW1 — ignores the global horizon switcher. */
-const HORIZON = HORIZONS.GW1;
+/**
+ * The window every score on this page is computed over.
+ *
+ * The global horizon, NOT the GW1 lock this module used to carry. A player's
+ * chip appears on both this page and the Planner, and under two different
+ * windows the same player read 81 here and 84 there — a difference with a real
+ * reason behind it (this page answered "this week", the Planner "the next
+ * five") that no one reading two chips could see, and which therefore read as
+ * one of the two numbers being wrong.
+ *
+ * The cost is real and was accepted deliberately: the Starting XI and the
+ * captain pick are now chosen on a multi-gameweek average, so a player who
+ * BLANKS in the upcoming gameweek can still be picked to start it. Read
+ * buildFixtureContextLabel's line in a breakdown panel to see which fixtures
+ * a given score actually covers.
+ *
+ * A function, not a const: it re-reads the store each call, so restoring the
+ * horizon switcher needs no change here. Same shape as planner.js's getHorizon.
+ */
+function getHorizon() {
+  return HORIZONS[store.getActiveHorizon()] ?? HORIZONS.GW5;
+}
 
 /**
  * minutesSecurity below this threshold → "Rotation Risk" flag.
@@ -171,25 +191,31 @@ const BREAKDOWN_LABELS = { form: 'Form', fixture: 'Fixture', counter: 'Counter' 
 /**
  * Build the "which fixture is this" context line for a breakdown panel.
  *
- * Dashboard is GW1-locked, so score.perGw covers exactly one gameweek — but
- * that gameweek may hold TWO fixtures. This previously read perGw[0] and
- * discarded the second, which is precisely the information a user opens this
- * line to check on a double: it is the sanity check on the captaincy pick, and
- * it was telling half the truth.
+ * Names the NEAREST gameweek in the score's window — which may hold TWO
+ * fixtures. This previously read perGw[0] and discarded the second, which is
+ * precisely the information a user opens this line to check on a double: it is
+ * the sanity check on the captaincy pick, and it was telling half the truth.
+ *
+ * Since the page came off its GW1 lock the window runs past that gameweek, so
+ * the horizon's own label is appended: naming one fixture beside a number that
+ * read five would be the same half-truth in a new place.
  *
  * @param {object} score  a scorePlayer result
+ * @param {{label: string, gws: number}} [horizon]  the window `score` covers.
+ *   Omitted (the unit tests' shape) means "describe the nearest gameweek only".
  * @returns {string}
  */
-export function buildFixtureContextLabel(score) {
-  const slot = groupPerGwSlots(score?.perGw ?? [])[0];
-  if (!slot) return HORIZON.label;
-  if (slot.isBlank) return `GW${slot.gw} — Blank`;
+export function buildFixtureContextLabel(score, horizon = null) {
+  const slot   = groupPerGwSlots(score?.perGw ?? [])[0];
+  const window = (horizon && horizon.gws > 1) ? ` · ${horizon.label}` : '';
+  if (!slot) return (horizon ?? getHorizon()).label;
+  if (slot.isBlank) return `GW${slot.gw} — Blank${window}`;
 
   const fixtures = slot.fixtures
     .map(f => `${f.opponent ?? '?'} (${f.venue ?? '?'})`)
     .join(', ');
   const marker = slot.isDouble ? ' (double)' : '';
-  return `GW${slot.gw}${marker} vs ${fixtures}`;
+  return `GW${slot.gw}${marker} vs ${fixtures}${window}`;
 }
 
 /**
@@ -254,7 +280,7 @@ function buildBreakdownDetails(player, score, rankTier = null) {
 
   const estClass = isScoreEstimated(score) ? ' score-chip--estimated' : '';
   const chip     = `<span class="score-chip score-chip--${esc(score.band)}${estClass}${rankTierClass(rankTier)}">${Math.round(score.value)}</span>`;
-  const context  = buildFixtureContextLabel(score);
+  const context  = buildFixtureContextLabel(score, getHorizon());
 
   return `
     <details class="dash-breakdown">
@@ -290,10 +316,11 @@ function buildCtx() {
  *   'live'         — GW in progress: isCurrent, not finished, data_checked (FPL
  *                    has processed at least one fixture's data).
  *   'pre-deadline' — GW upcoming: isCurrent, not finished, not yet data_checked.
- *   'finished'     — current GW is fully finished.
+ *   'finished'     — every match in the current GW has been played.
  *   'off-season'   — no current GW (between seasons or unrecognised state).
  *
- * See normalise.js → events[].dataChecked for how data_checked is exposed.
+ * See normalise.js → events[].dataChecked for how data_checked is exposed, and
+ * events[].complete for why the finished test does not read `finished`.
  * @returns {'live'|'pre-deadline'|'finished'|'off-season'}
  */
 function getGwState() {
@@ -301,7 +328,10 @@ function getGwState() {
   if (!currentGwId) return 'off-season';
   const ev = store.getEvents().find(e => e.id === currentGwId);
   if (!ev) return 'off-season';
-  if (ev.finished) return 'finished';
+  // `complete`, not `finished`: FPL holds `finished` back until bonus is
+  // confirmed, and until then a round whose last match ended yesterday reads
+  // as neither finished nor data_checked — i.e. 'pre-deadline'.
+  if (ev.complete) return 'finished';
   if (ev.dataChecked) return 'live';
   return 'pre-deadline';
 }
@@ -424,7 +454,7 @@ function removePlayer(playerId) {
 // ─── Scoring ──────────────────────────────────────────────────────────────────
 
 /**
- * Score every player in the squad using HORIZONS.GW1 (locked).
+ * Score every player in the squad over the global horizon (see getHorizon).
  * Populates _scores. Silently skips players whose team is absent from ctx.
  */
 function scoreSquad() {
@@ -436,7 +466,7 @@ function scoreSquad() {
     const player = store.getPlayer(id);
     if (!player) continue;
     try {
-      _scores.set(id, scorePlayer(player, HORIZON, ctx));
+      _scores.set(id, scorePlayer(player, getHorizon(), ctx));
     } catch (err) {
       console.warn('[dashboard] scorePlayer failed for player', id, err.message ?? err);
     }
@@ -456,7 +486,7 @@ function scoreSquad() {
 function ensureRankTiers(ctx) {
   if (_rankTierByPlayerId !== null) return;
   try {
-    const ranked = attachRankTiers(rankPlayers(store.getPlayers(), HORIZON, ctx));
+    const ranked = attachRankTiers(rankPlayers(store.getPlayers(), getHorizon(), ctx));
     _rankTierByPlayerId = new Map(ranked.map(r => [r.player.id, r.rankTier]));
   } catch (err) {
     console.warn('[dashboard] full-pool rank computation failed', err?.message ?? err);

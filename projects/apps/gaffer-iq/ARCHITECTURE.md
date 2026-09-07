@@ -473,13 +473,14 @@ Horizons are a **first-class, cross-cutting concept**, defined once in `config.j
 HORIZONS = {
   GW1:  { label: 'This GW',      gws: 1 },
   GW3:  { label: 'Next 3 GWs',   gws: 3 },
+  GW5:  { label: 'Next 5 GWs',   gws: 5 },
   GW6:  { label: 'Next 6 GWs',   gws: 6 },
   GW10: { label: 'Next 10 GWs',  gws: 10 }
 }
 ```
 
 ### How they work
-- A single global "active horizon" lives in `store`, fixed at `GW6`. It was previously driven by a switcher in the app shell; that control was removed and nothing writes the value any more. `setActiveHorizon()` and the `horizon:changed` event are deliberately kept, so restoring a control means re-adding markup and one listener in `main.js` rather than re-plumbing the modules that read it.
+- A single global "active horizon" lives in `store`, fixed at `GW5`. It was previously driven by a switcher in the app shell; that control was removed and nothing writes the value any more. `setActiveHorizon()` and the `horizon:changed` event are deliberately kept, so restoring a control means re-adding markup and one listener in `main.js` rather than re-plumbing the modules that read it.
 - **`GW10` is not one of the switchable options.** Nothing selects it as the active horizon. It exists for the Matchup Analyser's Outlook strip (`MATCHUP_OUTLOOK_HORIZON` in `js/modules/matchup.js`), which deliberately reads a longer window than the app scores on: that strip only *shows* a team's run of fixtures, whereas the active horizon prices players in the Ranker and Planner, where lengthening the window would move every ranking. Matchup therefore does not read `getActiveHorizon()` at all, and no longer subscribes to `horizon:changed`.
 - For multi-GW horizons, a team/player's score is the **aggregate of its per-fixture composite scores across the horizon's GWs**, with a configurable aggregation method (default: mean, with an option for "worst-case" / minimum to surface fixture traps). The aggregation method and any GW-distance decay live in `config.js` and are detailed in `FEATURE_ENGINE.md`.
 - **Blank and double gameweeks** must be handled explicitly: a team with no fixture in a GW contributes a defined "blank" value (not zero, not skipped silently); a team with two fixtures has them collapsed to a per-GW mean and then lifted by `DGW_UPLIFT`, so a double adds *return* rather than doubling that gameweek's weight. `composite.js`'s `fixturesForTeamInWindow` resolves each team's fixture list per horizon, including these cases; `engine/fixtures.js` provides the display-side fold (`groupPerGwSlots`) and the irregularity summary. **Do not assume one-fixture-per-GW anywhere** — in particular, `perGw`'s length is not the horizon's length.

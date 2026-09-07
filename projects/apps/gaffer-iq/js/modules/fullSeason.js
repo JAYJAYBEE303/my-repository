@@ -22,6 +22,12 @@ import {
 
 let _root = null, _ribbon = null, _rail = null, _scroller = null;
 let _model = null;
+/**
+ * True from the moment a rebuild starts until the background player pass has
+ * finished ALL 38 gameweeks. While it is set, render()/renderRail() paint
+ * placeholders instead of the model — see skeletonColumnHTML below.
+ */
+let _loading = false;
 
 /** Safe HTML escape for any dynamic string injected via innerHTML. */
 function esc(str) {
@@ -30,13 +36,21 @@ function esc(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** aria-busy on/off. NOT toggleAttribute: that writes `aria-busy=""`, which is
+ *  not the string "true" and so announces nothing. */
+function setBusy(el, busy) {
+  if (!el) return;
+  if (busy) el.setAttribute('aria-busy', 'true');
+  else el.removeAttribute('aria-busy');
+}
+
 /**
  * Dot markup for a gameweek's top players — one dot per player, the first
- * SEASON_STANDOUT_PLAYERS carrying the glow class. Shared by columnHTML
- * (the initial paint, before the background pass has filled `players`) and
- * paintDots (the repaint once it has) so the two call sites can never drift
- * apart on which dots read as standouts — they previously did (columnHTML
- * had no standout class at all).
+ * SEASON_STANDOUT_PLAYERS carrying the glow class.
+ *
+ * The `?? []` is not defensive dressing: a week whose computation threw keeps
+ * `players` null through the reveal (see runPlayerPass's finally), and it
+ * renders as a column with no dots rather than as an exception.
  */
 function dotsHTML(players) {
   return (players ?? [])
@@ -72,6 +86,52 @@ function columnHTML(g) {
   return `<div class="season-gw${g.loaded ? ' season-gw--hot' : ''}" data-gw="${g.gw}"
                role="button" tabindex="0" aria-expanded="false"
                aria-label="Gameweek ${g.gw}">
+      <span class="season-gw__summary">
+        <span class="season-gw__n">${g.gw}</span>${tiles}<span class="season-gw__dots">${dots}</span>
+      </span>
+      <span class="season-gw__body"></span>
+    </div>`;
+}
+
+/**
+ * The same column, before the strip has anything final to say about it.
+ *
+ * WHY THE WHOLE STRIP WAITS FOR ALL 38. The ribbon can be drawn from fixtures
+ * alone in one tick, and it used to be: tiles painted immediately, then each
+ * week's dots appeared as runPlayerPass reached it, and finally the chip rail
+ * jumped as recomputeChipWindows moved the Triple Captain window off the
+ * placeholder it had been pinned to. Every one of those is a mark that looks
+ * final and is not — the standout dots ARE the captaincy shout, and they
+ * arrive week by week over a second or more while the reader is already
+ * reading them. CONVENTIONS.md §5.4's "withhold orderings, not just numbers"
+ * is the rule that settles it: this strip ranks players within a week and
+ * chip windows across the season, so skeletoning one value at a time is not
+ * enough — the strip is skeletoned as a whole and revealed as a whole.
+ *
+ * The GW number is NOT withheld. It is not a computed value — it is the
+ * column's identity, the one thing a reader needs to keep their place while
+ * the rest settles.
+ *
+ * Same footprint as columnHTML's real column: one tile per real matchup (so
+ * the reveal shifts no layout) and SEASON_TOP_PLAYERS dots, which is what a
+ * settled week shows. No `--hot` class: that is part of the revealed answer,
+ * not of the placeholder. No role/tabindex/aria-expanded either — see
+ * .season-gw--pending in components.css for why the affordance goes too.
+ */
+function skeletonColumnHTML(g) {
+  if (g.played) {
+    // A played week is a number and nothing else — there is no pending value
+    // in it to withhold, so it renders exactly as it finally will.
+    return `<div class="season-gw season-gw--past" data-gw="${g.gw}">`
+         + `<span class="season-gw__n">${g.gw}</span></div>`;
+  }
+  const tiles = g.matchups
+    .map(() => '<span class="season-gw__tile skeleton" aria-hidden="true"></span>')
+    .join('');
+  const dots = Array.from({ length: SEASON_TOP_PLAYERS }, () =>
+    '<i class="season-gw__dot skeleton" aria-hidden="true"></i>').join('');
+  return `<div class="season-gw season-gw--pending" data-gw="${g.gw}"
+               aria-label="Gameweek ${g.gw}, still calculating">
       <span class="season-gw__summary">
         <span class="season-gw__n">${g.gw}</span>${tiles}<span class="season-gw__dots">${dots}</span>
       </span>
@@ -122,12 +182,26 @@ const CHIP_LABEL = {
  */
 function renderRail() {
   if (!_rail || !_model) return;
+  setBusy(_rail, _loading);
   const chipsAt = gw => _model.chipWindows.filter(w => gw >= w.from && gw <= w.to);
   const cells = [];
   for (const g of _model.gameweeks) {
-    const windows = chipsAt(g.gw);
+    // The rail is skeletoned for the same reason the ribbon is, and it is the
+    // clearer case of the two: _model.chipWindows is computed twice, once
+    // before any week has players (which pins Triple Captain to each half's
+    // opening gameweek) and once for real at the end of runPlayerPass. Drawing
+    // the first answer means drawing chip windows that will move.
+    const windows = _loading ? [] : chipsAt(g.gw);
     const cellCls = ['season-rail__cell'];
     if (g.played) cellCls.push('season-rail__cell--past');
+    if (_loading && !g.played) {
+      // No head/tail/bridge: a placeholder must not imply a RUN, which is the
+      // one thing a chip window's shape says. One dash per week, no caps.
+      cells.push(`<span class="${cellCls.join(' ')}" data-gw="${g.gw}">`
+        + '<span class="season-rail__bar skeleton" aria-hidden="true"></span></span>');
+      if (g.gw === CHIP_RESET_AFTER_GW) cells.push('<span class="season-rail__split"></span>');
+      continue;
+    }
     const bars = windows.map(w => {
       const cls = ['season-rail__bar', CHIP_CLASS[w.chip]];
       if (g.gw === w.from) cls.push('season-rail__bar--head');
@@ -363,10 +437,13 @@ function playerRowHTML(p, i) {
 }
 
 /**
- * g.players is null until Task 11's background pass fills it in — a week
- * opened before then (or, later, one opened before its own chunk has run)
- * must still render something rather than throw. SEASON_TOP_PLAYERS rows,
- * matching the count a settled week would show.
+ * g.players is null until the background pass fills it in. No column can be
+ * opened while that pass is running any more (the whole strip is skeletoned
+ * and non-interactive until it finishes), so this is now a backstop rather
+ * than the common path: it covers the week whose own computation threw, which
+ * runPlayerPass deliberately still reveals rather than leaving the strip
+ * shimmering forever. SEASON_TOP_PLAYERS rows, matching the count a settled
+ * week would show.
  */
 function skeletonPlayerRowsHTML() {
   return Array.from({ length: SEASON_TOP_PLAYERS }, () =>
@@ -580,7 +657,11 @@ function onDocumentClick(e) {
   const inFloat = e.target.closest('.season-gw--float');
   const col = e.target.closest('.season-gw:not(.season-gw--float)');
   if (inFloat || (col && col === openCol)) { closeOpen(); return; }
-  if (col && !col.classList.contains('season-gw--past')) {
+  // --pending is excluded for the same reason as --past: there is nothing
+  // behind it to open. Its markup carries no role/tabindex either, so this is
+  // belt and braces rather than the only guard.
+  if (col && !col.classList.contains('season-gw--past')
+          && !col.classList.contains('season-gw--pending')) {
     const prev = openFloat ? { el: openFloat, col: openCol } : null;
     if (prev) collapse(prev.el, prev.col, true);   // skips its own scroll; not awaited
     expand(col, prev);
@@ -601,7 +682,8 @@ function onDocumentClick(e) {
 function onDocumentKeydown(e) {
   if (e.key === 'Escape') { closeOpen(); return; }
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
-  const col = e.target.closest?.('.season-gw:not(.season-gw--past):not(.season-gw--float)');
+  const col = e.target.closest?.(
+    '.season-gw:not(.season-gw--past):not(.season-gw--pending):not(.season-gw--float)');
   if (!col) return;
   e.preventDefault();
   col.click();
@@ -609,12 +691,16 @@ function onDocumentKeydown(e) {
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
-/** Rebuild the ribbon, rail and key from `_model`. */
+/** Rebuild the ribbon, rail and key from `_model` — or, while `_loading`, from
+ *  placeholders of the same shape (skeletonColumnHTML). Called twice per
+ *  rebuild: once for the skeleton and once, from runPlayerPass, for the
+ *  reveal. */
 function render() {
   if (!_model || !_ribbon) return;
+  setBusy(_ribbon, _loading);
   const cols = [];
   for (const g of _model.gameweeks) {
-    cols.push(columnHTML(g));
+    cols.push(_loading ? skeletonColumnHTML(g) : columnHTML(g));
     if (g.gw === CHIP_RESET_AFTER_GW) {
       cols.push('<span class="season-split" role="separator"'
         + ' aria-orientation="vertical"'
@@ -630,70 +716,53 @@ function render() {
 let _passId = 0;
 
 /**
- * Fill in every gameweek's top five, one week at a time.
+ * Fill in every gameweek's top five, one week at a time, then reveal the
+ * whole strip at once.
  *
- * The ribbon paints from fixtures alone first, because the player half needs
- * ~700 form computations before it can rank anything and that is far too long
- * to hold the first paint. Weeks land progressively; a panel opened before its
- * week arrives shows skeleton rows (see bodyHTML/skeletonPlayerRowsHTML).
+ * The strip cannot paint its real self up front: the player half needs ~700
+ * form computations before it can rank anything, and that is far too long to
+ * hold a paint for. So the ribbon and rail go up as placeholders
+ * (skeletonColumnHTML) and this pass, chunked one gameweek per macrotask so
+ * the page stays responsive, computes what they stand in for. The reveal is
+ * the single render() below — never per-week, for the reasons set out on
+ * skeletonColumnHTML.
  *
  * `_passId` abandons an in-flight pass when the data refreshes underneath it,
  * exactly as ranker.js's `_computeId` does — a second data:ready (rebuild()
  * calls this again) must not let a stale pass keep writing into a `_model`
- * it no longer owns.
+ * it no longer owns, NOR reveal the strip on the newer pass's behalf: the
+ * finally block below therefore checks ownership too, not just `_loading`.
  */
 async function runPlayerPass(ctx) {
   const my = ++_passId;
-  const formCache = buildPlayerFormCache(ctx);
-  for (const g of _model.gameweeks) {
-    if (my !== _passId) return;                 // superseded
-    g.players = buildGameweekPlayers(g.gw, ctx, formCache);
-    paintDots(g);
-    refreshOpenPanel(g);
-    await new Promise(r => setTimeout(r, 0));   // yield a frame
+  try {
+    const formCache = buildPlayerFormCache(ctx);
+    for (const g of _model.gameweeks) {
+      if (my !== _passId) return;                 // superseded
+      g.players = buildGameweekPlayers(g.gw, ctx, formCache);
+      await new Promise(r => setTimeout(r, 0));   // yield a frame
+    }
+    if (my !== _passId) return;
+    // The chip windows were first computed against players that had not
+    // arrived yet, which pins Triple Captain to each half's opening gameweek.
+    // Now that every week has its five, they can be computed for real —
+    // before the reveal, so the rail is only ever drawn once, with the answer.
+    _model.chipWindows = recomputeChipWindows(_model);
+  } finally {
+    // Reveal even if a week threw. A strip left shimmering for the rest of
+    // the session is worse than one with a gap in it, and bodyHTML already
+    // falls back to skeleton rows for any week whose `players` is still null.
+    // Guarded on ownership: a superseded pass returning early must leave the
+    // newer pass's `_loading` alone rather than reveal a strip mid-compute.
+    if (my === _passId) { _loading = false; render(); }
   }
-  // The chip windows were first computed against players that had not arrived
-  // yet, which pins Triple Captain to each half's opening gameweek. Now that
-  // every week has its five, they can be computed for real and the rail
-  // repainted — renderRail() is written to be safe to call twice.
-  _model.chipWindows = recomputeChipWindows(_model);
-  renderRail();
 }
 
-/** Repaint one column's dots once its players have arrived.
- *
- * Scoped to `_ribbon`, never to a `.season-gw--float` — the float is a
- * document.body sibling holding a static clone of the column's innerHTML
- * taken at expand() time (see expand()), so it carries no `[data-gw]` of its
- * own for this selector to match. An open float is therefore untouched by
- * this repaint; its player rows are handled separately by refreshOpenPanel().
- */
-function paintDots(g) {
-  const dots = _ribbon?.querySelector(`.season-gw[data-gw="${g.gw}"] .season-gw__dots`);
-  if (!dots) return;
-  dots.innerHTML = dotsHTML(g.players);
-}
-
-/**
- * If the gameweek that just got its players is ALSO the one currently open in
- * a floating panel, swap its skeleton rows for the real ones in place.
- *
- * expand() renders the float's body once, from whatever `g.players` held at
- * that moment (see bodyHTML()). A week opened before the pass reaches it gets
- * skeleton rows there, and nothing else in the pass ever revisits an
- * already-rendered float — so without this the panel would sit "loading"
- * forever even after `_model.gameweeks[i].players` has the real answer.
- * Reaching into just `.season-plist` (not re-running bodyHTML wholesale)
- * avoids disturbing the fixture rows, note, or the open/close choreography's
- * own inline styles.
- */
-function refreshOpenPanel(g) {
-  if (!openFloat || !openCol || +openCol.dataset.gw !== g.gw) return;
-  const plist = openFloat.querySelector('.season-plist');
-  if (!plist) return;
-  plist.innerHTML = g.players.map(playerRowHTML).join('');
-  plist.removeAttribute('aria-busy');
-}
+/* paintDots()/refreshOpenPanel() used to live here, patching one column's
+   dots and one open panel's player rows as each week landed. Both are gone
+   with the progressive reveal that needed them: no column shows a dot and no
+   column can be opened until the pass has finished all 38, at which point
+   render() draws every week from the settled model in one go. */
 
 function rebuild() {
   const season = store.getSeason();
@@ -725,6 +794,12 @@ function rebuild() {
     currentGw:           store.getUpcomingGw() ?? store.getCurrentGw() ?? 1,
   });
   _model = buildSeasonModel(ctx, season, { skipPlayers: true });
+  // Set BEFORE the first render, and cleared only by runPlayerPass's finally:
+  // everything render() puts on screen between these two lines is a
+  // placeholder. A refresh mid-session re-enters the skeleton state rather
+  // than leaving the previous answer up while a new one is computed — the old
+  // strip's dots and chip windows are no more current than no dots at all.
+  _loading = true;
   render();
   runPlayerPass(ctx);
 }

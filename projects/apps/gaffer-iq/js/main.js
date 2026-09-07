@@ -401,7 +401,7 @@ store.subscribe('data:ready', () => {
 
 // ─── Horizon ─────────────────────────────────────────────────────────────────
 // The switcher was removed from the nav; the horizon is fixed at store's
-// default (GW6). Modules still read store.getActiveHorizon(), so restoring a
+// default (GW5). Modules still read store.getActiveHorizon(), so restoring a
 // control later means re-adding markup and a listener here, nothing more.
 
 // ─── Hash-based routing ───────────────────────────────────────────────────────
