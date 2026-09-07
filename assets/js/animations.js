@@ -4,7 +4,7 @@
 
      1. Core interactions — theme toggle, nav dropdowns.
      2. Motion          — reveal-on-scroll, dropdown stagger, haptics,
-                          anchor-close behaviour.
+                          anchor-close behaviour, reading progress.
 
    Hidden-state CSS lives in style.css (scoped to .js) so it takes effect
    at parse time — no flicker, no class-tagging race. This file just
@@ -166,6 +166,7 @@
      b. Per-item stagger when a nav dropdown opens.
      c. Tactile haptic on meaningful clicks.
      d. Anchor clicks close any open dropdown before the scroll glides.
+     e. Reading-progress hairline for pages that opt into one.
    ========================================================================= */
 (function () {
   'use strict';
@@ -642,6 +643,50 @@
   }
 
   // -------------------------------------------------------------------------
+  // e. Reading progress
+  //
+  // The hairline across the top of the viewport (.read-progress), emitted
+  // by default.html only for pages whose front matter carries
+  // `read_progress: true`. Everywhere else this is a no-op.
+  //
+  // Writes the 0-1 scroll fraction to --read-progress-scale and lets the
+  // CSS turn it into a scaleX, so a scroll tick never touches layout.
+  // scrollHeight is re-read on every paint rather than cached: the page
+  // grows as lazy images land and as the scroll-gate opens, and a cached
+  // measurement would have the bar reporting against a page that no
+  // longer exists.
+  //
+  // Deliberately NOT gated on REDUCED_MOTION. The bar is a position
+  // readout, not decoration — suppressing it would remove information,
+  // not motion. global.css already flattens its transition to ~0ms for
+  // those users, so it tracks the scroll exactly instead of easing.
+  // -------------------------------------------------------------------------
+  function setupReadProgress() {
+    var bar = document.getElementById('read-progress');
+    if (!bar) return;
+
+    var ticking = false;
+
+    function paint() {
+      ticking = false;
+      var doc = document.documentElement;
+      var max = doc.scrollHeight - doc.clientHeight;
+      var pct = max > 0 ? window.scrollY / max : 0;
+      bar.style.setProperty('--read-progress-scale', pct);
+    }
+
+    function request() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(paint);
+    }
+
+    window.addEventListener('scroll', request, { passive: true });
+    window.addEventListener('resize', request, { passive: true });
+    paint();
+  }
+
+  // -------------------------------------------------------------------------
   // Boot
   // -------------------------------------------------------------------------
   function boot() {
@@ -652,6 +697,7 @@
     setupHaptics();
     setupAnchorScroll();
     setupDisclosures();
+    setupReadProgress();
   }
 
   if (document.readyState === 'loading') {

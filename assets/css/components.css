@@ -448,6 +448,37 @@ html:not(.is-home) :is(
 }
 
 /* =========================================================================
+   READING PROGRESS
+   Hairline pinned across the top of the viewport, filling left to right
+   as the reader moves down the page. Started life as the essay page's
+   .es-progress; it lives here now because the home page and /projects
+   use it too.
+
+   Opt-in per page: `read_progress: true` in front matter, which
+   default.html reads to decide whether to emit the element at all. Not
+   every page earns one — the wiki entries are too short for a progress
+   line to say anything.
+
+   With no JS the scale stays at its 0 fallback, so the bar is simply
+   never painted rather than sitting full-width and lying.
+   ========================================================================= */
+.read-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  background: var(--accent);
+  z-index: 100;
+  /* Scale, not width — setupReadProgress() in animations.js sets
+     --read-progress-scale on scroll, so this animates transform instead
+     of triggering layout on every scroll tick. */
+  transform: scaleX(var(--read-progress-scale, 0));
+  transform-origin: left;
+  transition: transform var(--dur-1) var(--ease);
+}
+
+/* =========================================================================
    NO-JS FALLBACK SAFETY
    If JS somehow never runs (or IntersectionObserver isn't available),
    the .js-hidden elements still become visible after a generous timeout.

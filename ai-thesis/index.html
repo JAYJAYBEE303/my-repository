@@ -3,6 +3,7 @@ layout: default
 title: The AI Thesis — Josh Bailey
 description: A long-form essay — AI as the next uncharted frontier and the risks nobody's pricing in, why this site exists, and how the skill set stays relevant while the ground keeps moving.
 scroll_gate: false
+read_progress: true
 ---
 
 <!-- =============================================================
@@ -20,13 +21,15 @@ scroll_gate: false
      (Downloads/jayjaybee.com components/essay-page/essay.html):
      the standalone .ds-bar top bar, its own theme toggle, and its
      own <footer> were dropped as duplicates of what default.html
-     already provides site-wide. Everything else — mast, stat
-     strip, sticky TOC rail, chapters, pull quotes, info box, roman
-     list — is unchanged in structure, restyled to resolve entirely
-     through the site's own tokens (see .es-* in layout.css).
-     ============================================================= -->
-<div class="es-progress" id="es-progress" aria-hidden="true"></div>
+     already provides site-wide. Its reading-progress line went the same
+     way later: it is now the shared .read-progress, emitted by
+     default.html for any page carrying `read_progress: true`.
 
+     Everything else — mast, stat strip, sticky TOC rail, chapters,
+     pull quotes, info box, roman list — is unchanged in structure,
+     restyled to resolve entirely through the site's own tokens (see
+     .es-* in layout.css).
+     ============================================================= -->
 <div class="es-mast">
   <p class="mono-label">Essay · Three chapters</p>
   <h1 class="es-mast__title">New frontiers, old risks.</h1>
@@ -166,11 +169,12 @@ scroll_gate: false
   </article>
 </div>
 
-<!-- Scroll-spy TOC + reading-progress line. Page-specific behaviour,
-     not shared by any other page, so it's inline here rather than a
-     new sitewide asset/js/*.js file. Theme toggling is NOT duplicated
-     here — the header's #theme-toggle (animations.js) already covers
-     every page, this one included. -->
+<!-- Scroll-spy TOC. Page-specific behaviour — this is the only page
+     with a chapter rail — so it's inline here rather than a new
+     sitewide asset/js/*.js file. Neither theme toggling nor the
+     reading-progress line is duplicated here: the header's
+     #theme-toggle and setupReadProgress() (both animations.js) already
+     cover every page, this one included. -->
 <script>
 (function () {
   var heads = [].slice.call(document.querySelectorAll('.es-art h2, .es-art h3'));
@@ -188,13 +192,7 @@ scroll_gate: false
     heads.forEach(function (h, i) { if (h.offsetTop <= line) active = i; });
     links.forEach(function (a, i) { a.classList.toggle('is-active', i === active); });
   }
-  function progress() {
-    var doc = document.documentElement;
-    var max = doc.scrollHeight - doc.clientHeight;
-    var pct = max > 0 ? window.scrollY / max : 0;
-    document.getElementById('es-progress').style.setProperty('--es-progress-scale', pct);
-  }
-  window.addEventListener('scroll', function () { requestAnimationFrame(function () { spy(); progress(); }); }, { passive: true });
-  spy(); progress();
+  window.addEventListener('scroll', function () { requestAnimationFrame(spy); }, { passive: true });
+  spy();
 })();
 </script>

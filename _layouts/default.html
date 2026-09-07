@@ -154,10 +154,23 @@
     })();
   </script>
 
-  <link rel="stylesheet" href="/assets/css/global.css?v=71" />
+  <link rel="stylesheet" href="/assets/css/global.css?v=72" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
+
+  {%- comment -%}
+    Reading-progress hairline. Opt-in per page with `read_progress: true`
+    in front matter — a page's own, or (same fallback as scroll_gate
+    above) its LAYOUT's, so a layout can set it once for every page that
+    uses it. Only long pages earn one: a bar that fills in two scroll
+    ticks reports nothing the scrollbar didn't. Emitted server-side and
+    driven by setupReadProgress() in animations.js; styled as
+    .read-progress in components.css.
+  {%- endcomment -%}
+  {%- if page.read_progress == true or layout.read_progress == true -%}
+  <div class="read-progress" id="read-progress" aria-hidden="true"></div>
+  {%- endif -%}
 
   <!-- ============================================================
        Site navigation — large serif wordmark with brand mark on top,
@@ -369,7 +382,7 @@
     </div>
   </footer>
 
-  <script src="/assets/js/animations.js?v=19" defer></script>
+  <script src="/assets/js/animations.js?v=20" defer></script>
   <script src="/assets/js/search.js?v=3" defer></script>
 </body>
 </html>
