@@ -22,34 +22,47 @@ function esc(str) {
 }
 
 /**
- * The five boards, in render order.
+ * The six boards, in render order.
  *
  * `blurb` is the one-line strategy statement under the title: what question
- * this board answers, in plain language. Without it the five titles read as
- * five arbitrary rankings of the same transfer list.
+ * this board answers, in plain language. Without it the six titles read as
+ * six arbitrary rankings of the same transfer list.
  *
  * `unit` labels the MIDDLE COLUMN — the one number on every row — so a reader
- * never has to guess whether "+8.0" is points, pounds, a rate or a swing. It
+ * never has to guess whether "+8.0" is points, pounds, a rate or a ratio. It
  * describes that column and nothing else; the strategy explanation lives in
  * `blurb`, not here.
+ *
+ * The unit labels are load-bearing, not decoration. Now, Long term, Future Prep
+ * and Structure Fix all report projected XI points, but over DIFFERENT SPANS —
+ * one gameweek, five, three, five — so their numbers are not comparable to one
+ * another and the span in each label is the only thing that says so. Never
+ * shorten a unit to just "projected XI points". See engine/transfers.js's
+ * header and spec §6.
  */
 export const LANE_BOARDS = [
   { id: 'now',       title: 'Now',
-    blurb: 'The biggest immediate upgrade to your starting XI over the current '
-         + 'horizon. Says nothing about what happens after it.',
-    unit: 'projected XI points over the horizon',
+    blurb: 'The biggest upgrade to your starting XI for the next gameweek '
+         + 'alone. Says nothing about what happens after it.',
+    unit: 'projected XI points, next GW',
+    format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}` },
+
+  { id: 'longterm',  title: 'Long term',
+    blurb: 'The biggest upgrade across the whole planning window. Ranks by '
+         + 'total projected points over the next five gameweeks, not one.',
+    unit: 'projected XI points, next 5 GWs',
     format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}` },
 
   { id: 'future',    title: 'Future Prep',
-    blurb: 'Buying before the fixtures turn. Ranks by how much MORE a player is '
-         + 'worth in the deferred window than he is right now.',
-    unit: 'projected XI points, later minus now',
+    blurb: 'Buying before the fixtures turn. Ranks by the strongest run over '
+         + 'the 3rd to 5th upcoming gameweeks, ignoring the next two.',
+    unit: 'projected XI points, GWs 3–5',
     format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}` },
 
   { id: 'funds',     title: 'Funds & Flexibility',
-    blurb: 'Cash and room to manoeuvre. Frees money and unclumps your price '
-         + 'bands for the smallest sacrifice in projected points.',
-    unit: 'flexibility points per point given up',
+    blurb: 'Downgrades in price that are upgrades in output. Only cheaper '
+         + 'players appear, ranked by the points each pound released buys.',
+    unit: 'XI points gained per £m freed',
     format: v => v.toFixed(1) },
 
   { id: 'ceiling',   title: 'Ceiling',
@@ -61,7 +74,7 @@ export const LANE_BOARDS = [
   { id: 'structure', title: 'Structure Fix',
     blurb: 'Repairing a broken XI slot: a starter who is flagged, barely '
          + 'playing, or rating in the bottom band of the whole pool.',
-    unit: 'projected XI points restored',
+    unit: 'projected XI points restored, next 5 GWs',
     format: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}` },
 ];
 
@@ -93,15 +106,19 @@ const CONFIDENCE_LABELS = {
  * is the half a reader needs to act and the half that was missing.
  */
 const LANE_DIRECTIONS = {
-  now: 'Strategy: spend this week\'s transfer on the biggest immediate gain to '
-     + 'your XI. This is a bet on the next few gameweeks only — it takes no '
-     + 'view on fixtures beyond the horizon.',
+  now: 'Strategy: spend this week\'s transfer on the biggest gain for the next '
+     + 'gameweek. This is a bet on Saturday alone — it takes no view on '
+     + 'anything beyond it, so check it against Long term before committing.',
+  longterm: 'Strategy: spend the transfer on the biggest gain across the whole '
+          + 'planning window. A move that is flat this week but strong over five '
+          + 'gameweeks wins here, and that is usually the right trade with a '
+          + 'free transfer in hand.',
   future: 'Strategy: move early and accept a flat week or two. The gain arrives '
         + 'when the fixtures turn, not now, so judge it in a month rather than '
         + 'on Saturday.',
-  funds: 'Strategy: trade a little scoring for room to manoeuvre. Free the cash '
-       + 'and unclump your price bands so the upgrade you actually want is '
-       + 'affordable in a week or two.',
+  funds: 'Strategy: take the free lunch. Every move here costs less than the '
+       + 'player it replaces AND scores more, so it banks cash toward the '
+       + 'upgrade you actually want without giving up points to do it.',
   ceiling: 'Strategy: play for a spike rather than a steady score. Decide your '
          + 'captain alongside this, and check it against any Triple Captain you '
          + 'still hold.',
@@ -385,7 +402,7 @@ function renderBoard(board, swaps, opts) {
 /**
  * Whether SOME candidate out-player is structurally broken, independent of
  * whether any candidate swap for them turned out profitable (the Structure
- * lane always scores `max(0, nearXiDelta)`, so a broken starter with no
+ * lane always scores `max(0, longXiDelta * gws)`, so a broken starter with no
  * affordable improvement scores exactly 0 — same as "nothing is broken").
  * Mirrors the three OUT-side conditions `scoreStructureLane` checks
  * (engine/transfers.js), read back off data the swaps already carry rather
@@ -414,15 +431,19 @@ function emptyMessage(boardId, swaps) {
       ? 'A starter is flagged, low on minutes, or rating poorly — but no '
         + 'affordable replacement actually gains points in your XI.'
       : 'Nothing broken — no starter is flagged or short of minutes.';
-    case 'future':    return 'No fixture swings worth pre-empting within your budget.';
-    case 'funds':     return 'No move improves your flexibility without costing too much.';
+    case 'future':    return 'No strong enough run over the 3rd to 5th upcoming '
+                           + 'gameweeks within your budget.';
+    case 'funds':     return 'No cheaper player would also improve your XI — every '
+                           + 'downgrade in price is a downgrade in points too.';
     case 'ceiling':   return 'No higher-ceiling option within budget.';
+    case 'longterm':  return 'No move gains points across the next five gameweeks '
+                           + 'within budget.';
     default:          return 'No move gains points in your XI within budget.';
   }
 }
 
 /**
- * The full grid of five boards.
+ * The full grid of six boards.
  * @param {Array<Swap>} swaps
  * @param {{expandedBoards: Set<string>, openRows: Set<string>}} opts
  * @returns {string}  HTML

@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { enumerateSwaps, calcSquadFlexibility } from '../../js/engine/transfers.js';
+import { FUNDS_MIN_CASH_FREED, FUTURE_WINDOW_GWS, HIT_PENALTY } from '../../js/config.js';
 
 /**
  * A stub scoring context. enumerateSwaps calls scorePlayer, which needs a real
@@ -89,8 +90,8 @@ test('a bench-for-bench swap scores near zero on the Now lane', () => {
   });
   const benchSwap = swaps.find(s => s.outId === 8 && s.inId === 20);
   assert.ok(benchSwap, 'the bench swap is enumerated');
-  assert.ok(Math.abs(benchSwap.nearXiDelta) < 1.0,
-    `bench churn must be near zero, got ${benchSwap.nearXiDelta}`);
+  assert.ok(Math.abs(benchSwap.longXiDelta) < 1.0,
+    `bench churn must be near zero, got ${benchSwap.longXiDelta}`);
 });
 
 test('a swap that promotes a player into the XI beats bench churn', () => {
@@ -102,7 +103,7 @@ test('a swap that promotes a player into the XI beats bench churn', () => {
   });
   const churn   = swaps.find(s => s.outId === 8 && s.inId === 20);
   const upgrade = swaps.find(s => s.outId === 8 && s.inId === 40);
-  assert.ok(upgrade.nearXiDelta > churn.nearXiDelta,
+  assert.ok(upgrade.longXiDelta > churn.longXiDelta,
     'the XI-reaching move must rank above the bench move');
 });
 
@@ -145,30 +146,181 @@ test('calcSquadFlexibility stays within 0-100', () => {
   assert.ok(result.value >= 0 && result.value <= 100, `got ${result.value}`);
 });
 
-test('the Future lane ranks by swing, not by raw far-window value', () => {
-  // Two candidates with identical far-window value; only their NEAR value
-  // differs. The one that is worse now — and therefore swings harder — must
-  // score higher on the Future lane.
+test('the Future lane ranks by raw deferred-window value, not by swing', () => {
+  // Deliberately adversarial fixture: the candidate with the WEAKER deferred
+  // window has the LARGER swing. Under the old swing ranking it won; under the
+  // window-total ranking it must lose. The swing assertion below is part of the
+  // test — without it a fixture that stopped discriminating would pass silently.
   const squad = squadOf15();
-  const steady = player(30, 'MID', 7.0, 6.0);
-  const riser  = player(31, 'MID', 7.0, 1.0);
-  const scorer = (p, horizon) => {
-    const isFar = horizon.label === 'Future';
-    if (p.id === 30) return { ...stubScorer(p), expectedPoints: { value: 6, estimated: false } };
-    if (p.id === 31) return {
-      ...stubScorer(p),
-      expectedPoints: { value: isFar ? 6 : 1, estimated: false },
-    };
-    return stubScorer(p);
+  const bigRun   = player(32, 'MID', 7.0, 0);   // strong now, stronger later
+  const bigSwing = player(33, 'MID', 7.0, 0);   // poor now, middling later
+  const epFor = (id, isFar) => {
+    if (id === 32) return isFar ? 9.0 : 7.0;
+    if (id === 33) return isFar ? 4.0 : 0.5;
+    return null;
   };
-  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, steady, riser], stubCtx(), {
+  const scorer = (p, horizon) => {
+    const ep = epFor(p.id, horizon.label === 'Future');
+    if (ep === null) return stubScorer(p);
+    return { ...stubScorer(p), expectedPoints: { value: ep, estimated: false } };
+  };
+  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, bigRun, bigSwing], stubCtx(), {
     horizon: { label: 'test', gws: 3 }, budget: 5, freeTransfers: 1,
     scorePlayerFn: scorer,
   });
-  const steadySwap = swaps.find(s => s.inId === 30 && s.outId === 8);
-  const riserSwap  = swaps.find(s => s.inId === 31 && s.outId === 8);
-  assert.ok(riserSwap.lanes.future.value > steadySwap.lanes.future.value,
-    'the player who improves later must win the Future lane');
+  const runSwap   = swaps.find(s => s.inId === 32 && s.outId === 8);
+  const swingSwap = swaps.find(s => s.inId === 33 && s.outId === 8);
+
+  const runSwing   = runSwap.farXiDelta   - runSwap.longXiDelta;
+  const swingSwing = swingSwap.farXiDelta - swingSwap.longXiDelta;
+  assert.ok(swingSwing > runSwing,
+    `fixture must be adversarial: swings ${swingSwing} vs ${runSwing}`);
+
+  assert.ok(runSwap.lanes.future.value > swingSwap.lanes.future.value,
+    'the stronger deferred run must win, even though it swings less');
+});
+
+test('the Future lane reports a window total over FUTURE_WINDOW_GWS gameweeks', () => {
+  const squad = squadOf15();
+  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, player(40, 'MID', 6.0, 7.5)], stubCtx(), {
+    horizon: { label: 'test', gws: 5 }, budget: 5, freeTransfers: 1,
+    scorePlayerFn: stubScorer,
+  });
+  const swap = swaps.find(s => s.outId === 8 && s.inId === 40);
+  assert.equal(swap.windowGws.far, FUTURE_WINDOW_GWS);
+  assert.ok(Math.abs(swap.lanes.future.value - swap.farXiDelta * FUTURE_WINDOW_GWS) < 1e-9,
+    'the Future value is its per-GW delta times the deferred window length');
+});
+
+test('the deferred window starts FUTURE_WINDOW_START gameweeks after the current one', () => {
+  // The three windows are identified by the (label, gws, currentGw) triple each
+  // scoring pass is handed. Asserting on them is what pins "GWs 3-5 ahead" to
+  // an actual offset rather than to a comment.
+  const squad = squadOf15();
+  const seen = new Set();
+  const scorer = (p, horizon, ctx) => {
+    seen.add(`${horizon.label}:${horizon.gws}:${ctx.currentGw}`);
+    return stubScorer(p);
+  };
+  enumerateSwaps(squad.map(p => p.id), [...squad, player(40, 'MID', 6.0, 7.5)], stubCtx(), {
+    horizon: { label: 'test', gws: 5 }, budget: 5, freeTransfers: 1,
+    scorePlayerFn: scorer,
+  });
+  // stubCtx()'s currentGw is 10, so the deferred window runs GW12-GW14 — the
+  // 3rd, 4th and 5th upcoming gameweeks.
+  assert.ok(seen.has('test:5:10'),  `long window missing, saw ${[...seen]}`);
+  assert.ok(seen.has('Now:1:10'),   `now window missing, saw ${[...seen]}`);
+  assert.ok(seen.has('Future:3:12'), `far window missing, saw ${[...seen]}`);
+});
+
+test('Now and Long term diverge for a one-week spike', () => {
+  const squad = squadOf15();
+  const spike  = player(34, 'MID', 7.0, 0);  // huge next GW, poor across five
+  const steady = player(35, 'MID', 7.0, 0);  // same every week
+  const scorer = (p, horizon) => {
+    const isNow = horizon.label === 'Now';
+    if (p.id === 34) return { ...stubScorer(p), expectedPoints: { value: isNow ? 12.0 : 2.0, estimated: false } };
+    if (p.id === 35) return { ...stubScorer(p), expectedPoints: { value: 7.0, estimated: false } };
+    return stubScorer(p);
+  };
+  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, spike, steady], stubCtx(), {
+    horizon: { label: 'test', gws: 5 }, budget: 5, freeTransfers: 1,
+    scorePlayerFn: scorer,
+  });
+  const spikeSwap  = swaps.find(s => s.inId === 34 && s.outId === 8);
+  const steadySwap = swaps.find(s => s.inId === 35 && s.outId === 8);
+
+  assert.ok(spikeSwap.lanes.now.value > steadySwap.lanes.now.value,
+    'the spike must win the single-gameweek board');
+  assert.ok(steadySwap.lanes.longterm.value > spikeSwap.lanes.longterm.value,
+    'the steady player must win the five-gameweek board');
+});
+
+test('lane values are window totals and the hit is charged once, not per gameweek', () => {
+  const squad = squadOf15();
+  // freeTransfers 0 makes hitCost real, which is the only state that can expose
+  // a hit being scaled by the window alongside the delta.
+  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, player(40, 'MID', 6.0, 7.5)], stubCtx(), {
+    horizon: { label: 'test', gws: 5 }, budget: 5, freeTransfers: 0,
+    scorePlayerFn: stubScorer,
+  });
+  const swap = swaps.find(s => s.outId === 8 && s.inId === 40);
+  assert.equal(swap.windowGws.long, 5);
+  assert.equal(swap.windowGws.now, 1);
+
+  const expectedLong = (swap.longXiDelta * 5) - HIT_PENALTY;
+  const expectedNow  = (swap.now1XiDelta * 1) - HIT_PENALTY;
+  assert.ok(Math.abs(swap.lanes.longterm.value - expectedLong) < 1e-9,
+    `long term ${swap.lanes.longterm.value} should be ${expectedLong}`);
+  assert.ok(Math.abs(swap.lanes.now.value - expectedNow) < 1e-9,
+    `now ${swap.lanes.now.value} should be ${expectedNow}`);
+});
+
+// ─── Funds & Flexibility ─────────────────────────────────────────────────────
+
+/** Enumerate against one extra candidate and return that swap out of player 12
+ *  (a 12.0m certain starter, so every candidate below is a genuine downgrade in
+ *  price and the lane's gate is the only thing filtering). */
+function fundsSwapFor(candidate, outId = 12) {
+  const squad = squadOf15();
+  const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, candidate], stubCtx(), {
+    horizon: { label: 'test', gws: 5 }, budget: 5, freeTransfers: 1,
+    scorePlayerFn: stubScorer,
+  });
+  const swap = swaps.find(s => s.outId === outId && s.inId === candidate.id);
+  assert.ok(swap, `the swap ${outId} -> ${candidate.id} is enumerated`);
+  return swap;
+}
+
+test('the Funds lane scores zero for a same-price move, however good', () => {
+  // The reported bug: a sideways move that freed nothing was topping the board.
+  const swap = fundsSwapFor(player(50, 'MID', 12.0, 11.0));
+  assert.equal(swap.priceDiff, 0);
+  assert.ok(swap.longXiDelta > 0, 'fixture must be a genuine points upgrade');
+  assert.equal(swap.lanes.funds.value, 0,
+    'freeing no money means no place on the Funds board');
+});
+
+test('the Funds lane scores zero for a more expensive move', () => {
+  const swap = fundsSwapFor(player(51, 'MID', 14.0, 11.0));
+  assert.ok(swap.priceDiff > 0);
+  assert.equal(swap.lanes.funds.value, 0);
+});
+
+test('the Funds lane scores zero for a saving below FUNDS_MIN_CASH_FREED', () => {
+  const swap = fundsSwapFor(player(52, 'MID', 11.9, 11.0));
+  const cashFreed = -swap.priceDiff;
+  assert.ok(cashFreed > 0 && cashFreed < FUNDS_MIN_CASH_FREED,
+    `fixture frees ${cashFreed}, which must sit under the floor`);
+  assert.equal(swap.lanes.funds.value, 0,
+    'a saving too small to plan around must not inflate the ratio');
+});
+
+test('the Funds lane ranks by points per pound, not by the size of the saving', () => {
+  // Efficient: frees 1.0m for a big gain. Wasteful: frees 4.0m for a token one.
+  const efficient = fundsSwapFor(player(53, 'MID', 11.0, 11.0));
+  const wasteful  = fundsSwapFor(player(54, 'MID',  8.0,  9.2));
+  assert.ok(-wasteful.priceDiff > -efficient.priceDiff,
+    'fixture must give the WEAKER move the LARGER saving');
+  assert.ok(efficient.lanes.funds.value > wasteful.lanes.funds.value,
+    'the better points-per-pound move must rank first despite saving less');
+});
+
+test('the Funds lane scores a cheaper-but-worse move negative, so the board drops it', () => {
+  const swap = fundsSwapFor(player(55, 'MID', 8.0, 1.0));
+  assert.ok(-swap.priceDiff >= FUNDS_MIN_CASH_FREED, 'fixture clears the cash floor');
+  assert.ok(swap.longXiDelta < 0, 'fixture must lose points');
+  assert.ok(swap.lanes.funds.value < 0,
+    'a downgrade in points must score below the board\'s value > 0 row filter');
+});
+
+test('the Funds lane still reports flexibility in components for the why-panel', () => {
+  // calcSquadFlexibility no longer ranks this lane but must not have been
+  // orphaned — strategy.js's cashCrunch trigger and the why-panel both read it.
+  const swap = fundsSwapFor(player(56, 'MID', 11.0, 11.0));
+  assert.ok(Number.isFinite(swap.lanes.funds.components.flexGain));
+  assert.ok(Number.isFinite(swap.lanes.funds.components.cashFreed));
+  assert.ok(Number.isFinite(swap.lanes.funds.components.pointsGained));
 });
 
 test('the Structure lane stays silent when the outgoing player is fine', () => {
@@ -188,7 +340,7 @@ test('the Structure lane fires for an unavailable XI player', () => {
   // stubScorer ignores `status`, so player 12 still projects its declared ep
   // (9.0) despite being injured — the repair only reads as a genuine gain if
   // the incoming player's ep (9.5) is HIGHER than that, giving a positive
-  // nearXiDelta for scoreStructureLane's max(0, nearXiDelta) to report.
+  // longXiDelta for scoreStructureLane to scale into a window total and report.
   const swaps = enumerateSwaps(squad.map(p => p.id), [...squad, player(40, 'MID', 12.0, 9.5)], stubCtx(), {
     horizon: { label: 'test', gws: 3 }, budget: 5, freeTransfers: 1,
     scorePlayerFn: stubScorer,

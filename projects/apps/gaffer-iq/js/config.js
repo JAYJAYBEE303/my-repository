@@ -775,11 +775,11 @@ export const BANDS_V2 = {
 // ─── §8 / ARCHITECTURE §9  Planning horizons ─────────────────────────────────
 
 // The horizons are a first-class, cross-cutting concept.
-// The active horizon key is stored in store.js, fixed at GW6 since the switcher
+// The active horizon key is stored in store.js, fixed at GW5 since the switcher
 // was removed from the nav (see ARCHITECTURE.md §9).
 //
 // GW10 is NOT one of the switchable options — store.activeHorizon is fixed at
-// GW6 and nothing selects GW10. It exists because the Matchup Analyser's
+// GW5 and nothing selects GW10. It exists because the Matchup Analyser's
 // Outlook strip reads a deliberately longer window than the scoring horizon
 // the rest of the app plans against: that strip is for eyeballing a team's run
 // of fixtures, where more weeks is simply more to look at, while the horizon
@@ -789,6 +789,7 @@ export const BANDS_V2 = {
 export const HORIZONS = {
   GW1:  { label: 'This GW',     gws: 1 },
   GW3:  { label: 'Next 3 GWs',  gws: 3 },
+  GW5:  { label: 'Next 5 GWs',  gws: 5 },
   GW6:  { label: 'Next 6 GWs',  gws: 6 },
   GW10: { label: 'Next 10 GWs', gws: 10 },
 };
@@ -796,7 +797,7 @@ export const HORIZONS = {
 // ─── §9  Horizon aggregation ──────────────────────────────────────────────────
 
 // Exponential decay per GW offset within the horizon window (nearer = more weight).
-// GW+0 → weight 1.0; GW+5 → weight ~0.59 at default.
+// GW+0 → weight 1.0; GW+4 → weight ~0.66 at default.
 export const HORIZON_DECAY = 0.9;
 
 // How per-fixture scores are combined across a horizon.
@@ -1298,24 +1299,69 @@ export const HIT_PENALTY = 4;
 // this whole change exists to fix.
 export const BENCH_CONTRIBUTION_WEIGHT = 0.15;
 
-// The deferred "future" window: starts FUTURE_WINDOW_START gameweeks after the
-// current one and runs for FUTURE_WINDOW_GWS gameweeks. Default GW+2..GW+6.
-export const FUTURE_WINDOW_START = 2;
-export const FUTURE_WINDOW_GWS   = 5;
+// ── Planner scoring windows ──────────────────────────────────────────────────
+//
+// The Planner scores every swap in THREE windows, not one. A window is
+// expressed as a start offset from ctx.currentGw plus a length in gameweeks;
+// engine/transfers.js builds each by shifting ctx.currentGw, the same way the
+// deferred window has always been built.
+//
+//   now1   offset +0, NOW_WINDOW_GWS gws          -> Now board
+//   long5  offset +0, the active horizon's gws    -> Long term + Funds boards
+//   far35  offset +FUTURE_WINDOW_START,
+//          FUTURE_WINDOW_GWS gws                  -> Future Prep board
+//
+// MODEL: offset +0 is the FIRST upcoming gameweek (scorePlayer builds its
+// window as currentGw + i for i in 0..gws-1), so "the 3rd to 5th upcoming
+// gameweeks" is start 2, length 3 — not start 3.
+//
+// See docs/superpowers/specs/2026-09-07-planner-horizon-split-and-value-funds-design.md §5.
 
-// Minimum far-window XI gain (in points) before a swing qualifies for the
-// Future Prep board. Stops the board filling with players who are merely
-// less-bad later rather than actually good later.
-export const FUTURE_MIN_FAR_GAIN = 0.5;
+// The immediate window: this gameweek only. Its own constant rather than a
+// literal 1 so the Now lane's multiplier and its window can never drift apart.
+export const NOW_WINDOW_GWS = 1;
+
+// The deferred "future" window: starts FUTURE_WINDOW_START gameweeks after the
+// current one and runs for FUTURE_WINDOW_GWS gameweeks. GW+2..GW+4 — that is,
+// the 3rd, 4th and 5th upcoming gameweeks, which is the run the Future Prep
+// board is asked about.
+export const FUTURE_WINDOW_START = 2;
+export const FUTURE_WINDOW_GWS   = 3;
+
+// Minimum far-window XI gain before a swap qualifies for the Future Prep board.
+// Stops the board filling with players who are merely less-bad later rather
+// than actually good later.
+//
+// This gates a WINDOW TOTAL (far-window delta × FUTURE_WINDOW_GWS), not the
+// per-gameweek rate it gated when the lane ranked by swing — hence 1.5 rather
+// than the old 0.5, which is the same real bar read on the new scale.
+export const FUTURE_MIN_FAR_GAIN = 1.5;
 
 // Candidates selected per position by a cheap pre-filter proxy (season points
 // per elapsed gameweek — see candidateProxyScore in engine/transfers.js), then
 // fully composite-scored. Composite rank orders WITHIN this pool; it does not
 // choose the pool. Bounds the O(n²) enumeration: 15 squad slots × this many
-// candidates × 2 windows.
+// candidates × 3 windows.
 export const CANDIDATE_POOL_PER_POS = 40;
 
-// ── Squad flexibility (Funds & Flexibility lane) ─────────────────────────────
+// ── Funds & Flexibility lane ─────────────────────────────────────────────────
+
+// Minimum cash a swap must free (£m) before it is eligible for the Funds board.
+//
+// MODEL: the lane ranks by XI points gained PER £m FREED, so a tiny divisor
+// inflates the ratio — a −£0.1m move would score ten times a −£1.0m one for
+// the same gain. £0.1m is also price-change noise rather than a saving anyone
+// plans around. This floor is what keeps the ratio honest, and it doubles as
+// the lane's cheaper-only gate: a same-price or dearer swap frees ≤ 0 and
+// fails the same comparison.
+export const FUNDS_MIN_CASH_FREED = 0.2;
+
+// ── Squad flexibility (cash-crunch trigger, why-panel component) ─────────────
+//
+// NOTE: as of the 2026-09-07 horizon-split spec, flexibility no longer RANKS
+// the Funds board — that lane ranks by points gained per £m freed. Flexibility
+// still has two live consumers and must not be deleted: engine/strategy.js's
+// cashCrunch verdict trigger, and modules/planner.js's squadState readout.
 //
 // MODEL: "flexibility" is carried as two weighted components because the
 // problem it describes has two readings and live use has not yet settled which
@@ -1367,11 +1413,36 @@ export const STRUCTURE_PLAYTIME_FLOOR = 0.45;
 // clearing VERDICT_ACT_THRESHOLD. They are still calibration targets, not
 // truths — the first thing to tune against realised results per ROADMAP.md
 // Phase 3B.
-export const LANE_SCALE_NOW       = 10;   // XI expected points gained
-export const LANE_SCALE_FUTURE    = 0.7;  // swing in XI expected points
-export const LANE_SCALE_FUNDS     = 5;    // flexibility points gained
-export const LANE_SCALE_CEILING   = 8;    // peak-blend points
-export const LANE_SCALE_STRUCTURE = 10;   // XI expected points restored
+//
+// RE-MEASURED 2026-09-07 for the horizon split, on live data at GW3 of the
+// season (15-man squad, GW5 horizon, £2.0m budget, 575 enumerated swaps) —
+// deliberately the same procedure as the GW2 measurement above. Each divisor
+// is that lane's observed maximum over the enumeration divided by ~0.95, so
+// the best real move lands at roughly 90–100 rather than being arithmetically
+// incapable of clearing VERDICT_ACT_THRESHOLD.
+//
+// Observed maxima: now 8.8, longterm 39.7, future 24.0, funds 88.5,
+// ceiling 6.2, structure 31.5.
+//
+// The horizon lanes report WINDOW TOTALS (delta × window gameweeks), so their
+// divisors carry the window length too: a Long term value is roughly five
+// times a Now value for the same move, and the two divisors differ by the same
+// factor so both still normalise into the same band. Comparing raw lane values
+// across boards is meaningless; comparing normalised ones is the whole point.
+export const LANE_SCALE_NOW       = 10;   // XI points gained, 1 GW
+export const LANE_SCALE_LONGTERM  = 42;   // XI points gained, 5 GWs
+export const LANE_SCALE_FUTURE    = 25;   // XI points gained, 3 GWs
+// NOTE the magnitude: a points-per-£m ratio is scale-free and runs an order of
+// magnitude above every points lane, because the divisor is routinely a
+// fraction of a pound. An earlier guess of 10 here pinned this lane at 100 on
+// any half-decent move and let it win the verdict every single week.
+export const LANE_SCALE_FUNDS     = 90;   // XI points gained per £m freed
+// Ceiling stays on a SINGLE-gameweek scale — "peak week" is inherently one
+// week, and its board label says so. Structure Fix does not: a broken slot
+// leaks points every week it stands, so it reports a 5-GW total like the
+// horizon lanes and its divisor moved 10 → 50 with them.
+export const LANE_SCALE_CEILING   = 8;    // peak-blend points, 1 GW
+export const LANE_SCALE_STRUCTURE = 33;   // XI points restored, 5 GWs
 
 // ── Verdict ──────────────────────────────────────────────────────────────────
 

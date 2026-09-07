@@ -119,8 +119,11 @@ let _dismissedVerdict = '';
  *  way to name the thing they are hiding. */
 let _currentVerdictSignature = '';
 
-/** Cached candidate scores, keyed by window. Cleared on data/horizon change. */
-let _scoreCaches = { near: new Map(), far: new Map() };
+/** Cached candidate scores, one Map per scoring window (long / now1 / far —
+ *  see engine/transfers.js). Cleared together on data or horizon change: a
+ *  window-specific cache outliving its window would silently serve scores from
+ *  the wrong number of gameweeks. */
+let _scoreCaches = { long: new Map(), now1: new Map(), far: new Map() };
 
 /** Last enumeration, reused when only budget or free transfers changed. */
 let _swaps = [];
@@ -280,9 +283,13 @@ function getPlanningTiming() {
   // the deadline alone is a clock read, and a wrong client clock would
   // otherwise silently skip a gameweek. Either signal is enough.
   const deadlinePassed = ev.deadline ? Date.parse(ev.deadline) <= Date.now() : false;
-  const started = Boolean(ev.finished || ev.dataChecked || deadlinePassed);
+  const started = Boolean(ev.complete || ev.dataChecked || deadlinePassed);
 
-  const phase = ev.finished ? 'finished' : started ? 'live' : 'pre-deadline';
+  // `complete` is full time by the fixtures. `ev.finished` waits for bonus
+  // confirmation, so it would report a played-out round as still 'live' — with
+  // an unplayed count of zero, which is the state planner-boards.js's lead
+  // sentence has to special-case away. See normalise.js deriveEventCompletion.
+  const phase = ev.complete ? 'finished' : started ? 'live' : 'pre-deadline';
 
   // Only meaningful while the round is under way: how many of its matches have
   // yet to be played, because each one still to come can move every number on
@@ -319,7 +326,7 @@ function buildCtx() {
 
 /** Resolve the active horizon object from the store. */
 function getHorizon() {
-  return HORIZONS[store.getActiveHorizon()] ?? HORIZONS.GW6;
+  return HORIZONS[store.getActiveHorizon()] ?? HORIZONS.GW5;
 }
 
 // ─── Chip-usage persistence (Phase 4-3) ──────────────────────────────────────
@@ -459,7 +466,12 @@ function ensureRankTiers(ctx, horizon) {
  */
 function computeBestTwoSwap(swaps) {
   if (!_allowExtraHit && _freeTransfers < 2) return null;
-  const singles = [...swaps].sort((a, b) => b.lanes.now.value - a.lanes.now.value);
+  // MODEL: ranked on the LONG window, not `lanes.now`. A two-transfer plan
+  // usually costs a −4 hit and is by nature a medium-term commitment; ranking
+  // it on the Now lane — which since the horizon split scores a single
+  // gameweek — would pick the pair that wins next Saturday and pay a hit for
+  // it. `lanes.longterm` is the window that decision actually lives in.
+  const singles = [...swaps].sort((a, b) => b.lanes.longterm.value - a.lanes.longterm.value);
   if (singles.length < 2) return null;
 
   const pool    = singles.slice(0, COMBO_POOL);
@@ -484,7 +496,7 @@ function computeBestTwoSwap(swaps) {
       // Combined budget: net of both priceDiffs must not exceed budget.
       if (s1.priceDiff + s2.priceDiff > _budget) continue;
 
-      const combinedDelta = s1.lanes.now.value + s2.lanes.now.value - hitCost;
+      const combinedDelta = s1.lanes.longterm.value + s2.lanes.longterm.value - hitCost;
       if (combinedDelta > bestDelta) {
         bestDelta = combinedDelta;
         best = { swap1: s1, swap2: s2, combinedDelta, isHit: hitCost > 0 };
@@ -648,8 +660,8 @@ function renderTwoSwapCard(twoSwap) {
           ${renderPlayerProjection(swap1.inPlayer, swap1.inScore, store.getTeam(swap1.inPlayer.teamId), 'in')}
         </div>
         <div class="planner-transfer-card__swap-meta">
-          <span class="planner-delta planner-delta--${swap1.lanes.now.value >= 0 ? 'gain' : 'loss'} planner-delta--sm${s1Est}">
-            ${swap1.lanes.now.value >= 0 ? '+' : ''}${swap1.lanes.now.value.toFixed(1)}
+          <span class="planner-delta planner-delta--${swap1.lanes.longterm.value >= 0 ? 'gain' : 'loss'} planner-delta--sm${s1Est}">
+            ${swap1.lanes.longterm.value >= 0 ? '+' : ''}${swap1.lanes.longterm.value.toFixed(1)}
           </span>
           <span class="planner-cost-diff planner-cost-diff--sm">
             ${swap1.priceDiff >= 0 ? '+' : ''}£${Math.abs(swap1.priceDiff).toFixed(1)}m
@@ -663,8 +675,8 @@ function renderTwoSwapCard(twoSwap) {
           ${renderPlayerProjection(swap2.inPlayer, swap2.inScore, store.getTeam(swap2.inPlayer.teamId), 'in')}
         </div>
         <div class="planner-transfer-card__swap-meta">
-          <span class="planner-delta planner-delta--${swap2.lanes.now.value >= 0 ? 'gain' : 'loss'} planner-delta--sm${s2Est}">
-            ${swap2.lanes.now.value >= 0 ? '+' : ''}${swap2.lanes.now.value.toFixed(1)}
+          <span class="planner-delta planner-delta--${swap2.lanes.longterm.value >= 0 ? 'gain' : 'loss'} planner-delta--sm${s2Est}">
+            ${swap2.lanes.longterm.value >= 0 ? '+' : ''}${swap2.lanes.longterm.value.toFixed(1)}
           </span>
           <span class="planner-cost-diff planner-cost-diff--sm">
             ${swap2.priceDiff >= 0 ? '+' : ''}£${Math.abs(swap2.priceDiff).toFixed(1)}m
@@ -883,7 +895,7 @@ function renderBoards(rescore = true) {
     return;
   }
 
-  if (rescore) _scoreCaches = { near: new Map(), far: new Map() };
+  if (rescore) _scoreCaches = { long: new Map(), now1: new Map(), far: new Map() };
 
   try {
     _swaps = enumerateSwaps(store.getSquad(), store.getPlayers(), ctx, {

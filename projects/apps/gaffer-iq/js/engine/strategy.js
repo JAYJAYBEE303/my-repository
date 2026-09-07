@@ -2,7 +2,7 @@
  * js/engine/strategy.js
  * Layer: engine (pure). No DOM, no network, no store mutation.
  *
- * Turns the five lane scores from engine/transfers.js into one weekly verdict:
+ * Turns the six lane scores from engine/transfers.js into one weekly verdict:
  * which lane to act on, how far ahead of the runner-up it is, and which hard
  * conditions — an injured starter, a chip window, a cash crunch — override the
  * arithmetic.
@@ -15,7 +15,7 @@
 
 import { clamp } from '../util.js';
 import {
-  LANE_SCALE_NOW, LANE_SCALE_FUTURE, LANE_SCALE_FUNDS,
+  LANE_SCALE_NOW, LANE_SCALE_LONGTERM, LANE_SCALE_FUTURE, LANE_SCALE_FUNDS,
   LANE_SCALE_CEILING, LANE_SCALE_STRUCTURE,
   VERDICT_ACT_THRESHOLD, VERDICT_MARGIN_CLEAR, VERDICT_MARGIN_DOMINANT,
   CHIP_WINDOW_GWS, FLEX_FLOOR, PRICE_BUY_NOW_CONFIDENCE, CHIP_LABELS,
@@ -28,6 +28,7 @@ const CHIP_TRIGGER_PRIORITY = ['triplecaptain', 'benchboost', 'freehit', 'wildca
 /** Lane id → the config divisor that maps its natural unit onto 0–100. */
 const LANE_SCALES = {
   now:       LANE_SCALE_NOW,
+  longterm:  LANE_SCALE_LONGTERM,
   future:    LANE_SCALE_FUTURE,
   funds:     LANE_SCALE_FUNDS,
   ceiling:   LANE_SCALE_CEILING,
@@ -37,6 +38,7 @@ const LANE_SCALES = {
 /** Human labels, used in the reasoning strings this module builds. */
 const LANE_LABELS = {
   now:       'Now',
+  longterm:  'Long term',
   future:    'Future Prep',
   funds:     'Funds & Flexibility',
   ceiling:   'Ceiling',
@@ -106,8 +108,15 @@ function detectTriggers(swaps, squadState, ctx) {
     triggers.push({
       id: 'cashCrunch',
       laneId: 'funds',
+      // Flexibility is what DETECTS the crunch; it is no longer what the Funds
+      // board ranks by (that is points gained per £m freed — see
+      // engine/transfers.js's scoreFundsLane). The message therefore names the
+      // symptom and then points at what the board will actually show, rather
+      // than promising a flexibility ranking the board no longer provides.
       message: `Squad flexibility is ${flexibility.toFixed(0)} — your money is `
-             + 'clumped tightly enough that upgrading anyone is getting hard.',
+             + 'clumped tightly enough that upgrading anyone is getting hard. '
+             + 'Funds & Flexibility lists the cheaper players who still improve '
+             + 'your XI.',
     });
   }
 
@@ -177,7 +186,7 @@ function detectTriggers(swaps, squadState, ctx) {
  * Build the week's verdict: which lane to act on (or whether to roll), how
  * confident that call is, and what — if anything — overrode the arithmetic.
  *
- * Selection has two stages. First, the five lanes are ranked by their best
+ * Selection has two stages. First, the six lanes are ranked by their best
  * swap's normalised score (0–100, see normaliseLaneValue); the top-ranked lane
  * is the "arithmetic leader" and only wins outright if its score clears
  * VERDICT_ACT_THRESHOLD — otherwise the verdict rolls. Second, any lane with a

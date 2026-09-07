@@ -7,16 +7,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildVerdict } from '../../js/engine/strategy.js';
+import { LANE_SCALE_NOW, LANE_SCALE_FUTURE } from '../../js/config.js';
 
 /** A swap whose lanes can be set individually. */
 function swapWith(lanes) {
-  const base = { now: 0, future: 0, funds: 0, ceiling: 0, structure: 0 };
+  const base = { now: 0, longterm: 0, future: 0, funds: 0, ceiling: 0, structure: 0 };
   const merged = { ...base, ...lanes };
   return {
     outId: 1, inId: 2,
     outPlayer: { id: 1, name: 'Out', status: 'available' },
     inPlayer:  { id: 2, name: 'In',  status: 'available' },
-    priceDiff: 0, nearXiDelta: merged.now, farXiDelta: 0,
+    priceDiff: 0,
+    longXiDelta: merged.longterm, now1XiDelta: merged.now, farXiDelta: 0,
+    windowGws: { now: 1, long: 5, far: 3 },
     flags: { outInXi: true, inEntersXi: true, outUnavailable: false },
     lanes: Object.fromEntries(Object.entries(merged).map(([k, v]) =>
       [k, { value: v, components: {}, estimated: false, reasoning: `${k} reasoning` }])),
@@ -44,11 +47,13 @@ test('buildVerdict names the winning lane when one move is strong', () => {
 });
 
 test('buildVerdict reports close when the top two lanes are near-tied', () => {
-  // Now 6.0 normalises to 60 (6.0 / LANE_SCALE_NOW=10 * 100) and Future 0.42 also
-  // normalises to 60 (0.42 / LANE_SCALE_FUTURE=0.7 * 100), so the margin is 0 and
-  // the verdict must read close.
+  // Both lanes are pitched at 60 on the shared 0-100 scale, so the margin is 0
+  // and the verdict must read close. Derived from the config divisors rather
+  // than hard-coded: the raw values that tie depend entirely on LANE_SCALE_*,
+  // and an earlier version of this test baked them in and broke the moment the
+  // lanes were rescaled.
   const verdict = buildVerdict(
-    [swapWith({ now: 6.0 }), swapWith({ future: 0.42 })],
+    [swapWith({ now: 0.60 * LANE_SCALE_NOW }), swapWith({ future: 0.60 * LANE_SCALE_FUTURE })],
     squadState(), { currentGw: 10 });
   assert.equal(verdict.confidence, 'close');
   assert.ok(verdict.alternatives.length >= 1, 'a close call names its rival');

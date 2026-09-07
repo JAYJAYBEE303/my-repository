@@ -1,6 +1,9 @@
 # Claude Code working files
 .claude/
 
+# Impeccable plugin working files (config + hook cache), same class as .claude/
+.impeccable/
+
 # Jekyll build output (GitHub Pages rebuilds on push; local builds stay local)
 _site/
 .jekyll-cache/
