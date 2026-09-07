@@ -16,15 +16,31 @@
 
   The design sheet's "Locally edited" row is deliberately absent. It
   reports on an in-browser edit mode this site does not have.
+
+  A count of zero prints nothing. "Notes 0" and "Inbound links 0" are
+  not status, they are the absence of it — the rail was spending two
+  lines to say a section has no footnotes, which is the ordinary case.
+  Revised is not a count and always shows.
+
+  Every row can therefore vanish except Revised. That is fine: .wk-stats
+  is a plain grid with a gap, so it collapses to whatever rows survive,
+  and the block always keeps its heading and at least the one row.
 =============================================================================
 {%- endcomment -%}
 {%- assign wk_note_count = page.content | split: "((" | size | minus: 1 -%}
+{%- assign wk_word_count = page.content | strip_html | number_of_words -%}
 <div class="wk-rail__block">
   <p class="wk-rail__h"><span class="mono-label">Entry status</span></p>
   <div class="wk-stats mono">
-    <span>Words<b>{{ page.content | strip_html | number_of_words }}</b></span>
+    {%- if wk_word_count > 0 %}
+    <span>Words<b>{{ wk_word_count }}</b></span>
+    {%- endif %}
+    {%- if wk_note_count > 0 %}
     <span>Notes<b>{{ wk_note_count }}</b></span>
+    {%- endif %}
+    {%- if include.backs > 0 %}
     <span>Inbound links<b>{{ include.backs }}</b></span>
+    {%- endif %}
     <span>Revised<b>{{ include.revised }}</b></span>
   </div>
 </div>

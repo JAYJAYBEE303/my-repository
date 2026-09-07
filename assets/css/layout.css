@@ -1109,21 +1109,9 @@
    existing rung small enough for these — --fs-mono stands in rather
    than adding a token for what is currently a single page.
    ========================================================================= */
-.es-progress {
-  position: fixed;
-  top: 0;
-  left: 0;
-  height: 2px;
-  width: 100%;
-  background: var(--accent);
-  z-index: 100;
-  /* Scale, not width — the JS below sets --es-progress-scale on scroll,
-     so this animates transform instead of triggering layout on every
-     scroll tick. */
-  transform: scaleX(var(--es-progress-scale, 0));
-  transform-origin: left;
-  transition: transform var(--dur-1) var(--ease);
-}
+/* The reading-progress line that used to live here as .es-progress is
+   now .read-progress in components.css — the home page and /projects
+   opt into it too, so it stopped being an essay-only one-off. */
 
 .es-mast {
   /* .page's own padding-top (clamp(--space-7, 6vw, --space-10)) grows

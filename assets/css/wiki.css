@@ -18,8 +18,10 @@
      * Typography that already exists as a utility is applied in the
        MARKUP (.mono, .mono-label, .section-title, .work-lede), not
        restated here.
-     * The wiki INDEX page (/projects/wiki/) uses the site's own .work-*
-       components verbatim and needs nothing from this file at all.
+     * /projects/wiki/ is a redirect to /projects/ and carries no
+       styling at all, so this file covers entry pages and nothing
+       else. It was an index built from the site's own .work-*
+       components, and needed nothing from here either.
 
    The six --wk-* properties below are the only new values in the file.
    Each is a structural measure with no site-wide counterpart, and none
@@ -754,7 +756,6 @@ sup.wk-fn a { color: var(--accent); text-decoration: none; padding: 0 var(--spac
   font-family: var(--font-sans);
   font-size: var(--fs-ui);
 }
-.wk-back__none { color: var(--fg-faint); }
 
 /* `nav.` for the same reason as p.wk-crumb — the element carries
    .mono-label, whose inline-block would otherwise win. */

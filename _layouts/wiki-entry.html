@@ -27,8 +27,8 @@ scroll_gate: false
   prose width it was designed around.
 
   `scroll_gate: false` too — a wiki section is straight into reference
-  content the moment it loads (crumb, title, lede), same as /projects/
-  and /projects/wiki/. There's no hero to hold the body back for.
+  content the moment it loads (crumb, title, lede), same as /projects/.
+  There's no hero to hold the body back for.
 
   Front matter a section page declares:
       layout:   wiki-entry          (required)
@@ -42,14 +42,23 @@ scroll_gate: false
                 (optional — see _includes/wiki-infobox.html. Terms are
                 glossary keys; one with no entry renders as plain text)
 
-  revised, author and status are NOT declared per section. They are
-  read from the parent app, so twelve pages do not restate the same
-  three values. A section may still override any of them.
+  revised and status are NOT declared per section. They are read from
+  the parent app, so twelve pages do not restate the same two values.
+  A section may still override either of them.
+
+  The meta strip used to carry an Author line, inherited the same way.
+  It said "Josh Bailey" on every page of a personal site — a field
+  that never varies is not metadata. It now reports read time, which
+  does vary and is the thing a reader actually wants before starting.
 
   `kind` is still inherited the same way, but this layout no longer
   shows it: every section of an app carries the same one, so the meta
   strip repeated `Application` on all twelve pages and said nothing.
-  /projects/wiki/ still lists it, where the apps differ from each other.
+  Nothing else reads it now either — /projects/wiki/ used to, and is a
+  redirect to /projects/ as of this change. `kind`, `group`, `summary`
+  and `author` are all in that position now: left in the app front
+  matter rather than deleted, because they are true and an index that
+  wants them again should not have to re-derive them.
 
   Everything derived below — the rail, numbering, backlinks, pager,
   Entry status — is read from the section pages themselves at build time.
@@ -70,8 +79,19 @@ scroll_gate: false
 
 {%- comment -%} ---- metadata, inherited from the app unless overridden ---- {%- endcomment -%}
 {%- assign wk_revised = page.revised | default: wk_app.revised -%}
-{%- assign wk_author = page.author | default: wk_app.author -%}
 {%- assign wk_status = page.status | default: wk_app.status -%}
+
+{%- comment -%}
+  Words and read time come off ONE count so the meta strip can never
+  contradict itself. 200 wpm is the rate the essay page's own "~18 min"
+  is set at, so the two pages agree about what a minute of reading is.
+
+  The plus: 199 before the divide is a ceiling — Liquid's divided_by
+  floors on integers, and a 40-word stub should read "~1 min", not
+  "~0 min".
+{%- endcomment -%}
+{%- assign wk_words = page.content | strip_html | number_of_words -%}
+{%- assign wk_mins = wk_words | plus: 199 | divided_by: 200 -%}
 
 {%- comment -%} Position within the app, for the meta strip. {%- endcomment -%}
 {%- assign wk_idx = 0 -%}
@@ -137,7 +157,7 @@ scroll_gate: false
     <!-- ===================================================================
          Left rail — this app's sections, grouped and numbered. Scoped to
          the app deliberately: the reader is navigating one write-up, and
-         the other write-ups are a click away on /projects/wiki/.
+         the other write-ups are a click away on /projects/.
          =================================================================== -->
     <aside class="wk-rail wk-rail--left" aria-label="{{ wk_app.title }} sections">
       {% include wiki-rail.html app=wk_app sections=wk_sections %}
@@ -148,10 +168,13 @@ scroll_gate: false
          =================================================================== -->
     <article class="wk-art">
 
+      {%- comment -%}
+        Projects / <app> / <section>. The Wiki hop between the first two
+        came out when /projects/wiki/ became a redirect to /projects/ —
+        it would have been two adjacent crumbs pointing at one page.
+      {%- endcomment -%}
       <p class="wk-crumb mono-label">
         <a href="/projects/">Projects</a>
-        <span class="wk-crumb__sep" aria-hidden="true">/</span>
-        <a href="/projects/wiki/">Wiki</a>
         <span class="wk-crumb__sep" aria-hidden="true">/</span>
         <a href="{{ wk_first.url }}">{{ wk_app.title }}</a>
         <span class="wk-crumb__sep" aria-hidden="true">/</span>
@@ -167,8 +190,8 @@ scroll_gate: false
       <div class="wk-art__meta mono">
         <span><b>Entry</b>{{ wk_idx | plus: 1 | prepend: '0' | slice: -2, 2 }} / {{ wk_sections.size | prepend: '0' | slice: -2, 2 }}</span>
         <span><b>Revised</b>{{ wk_revised }}</span>
-        <span><b>Author</b>{{ wk_author }}</span>
-        <span><b>Words</b>{{ page.content | strip_html | number_of_words }}</span>
+        <span><b>Read time</b>~{{ wk_mins }} min</span>
+        <span><b>Words</b>{{ wk_words }}</span>
       </div>
 
       {%- if wk_status == 'draft' %}
@@ -206,14 +229,20 @@ scroll_gate: false
       {%- capture wk_raw %}{{ content }}{% endcapture -%}
       {% include wiki-body.html html=wk_raw %}
 
+      {%- comment -%}
+        Backlinks, or nothing at all. This used to render a ruled-off
+        "Referenced by — nothing yet, an orphan entry" on any section
+        no other section had linked to, which is most of them: a heading,
+        a rule and a line of grey text to report an absence. The pager
+        below carries its own top margin and rule, so dropping the block
+        leaves the end of the article correctly spaced.
+      {%- endcomment -%}
+      {%- if wk_backs_count > 0 %}
       <div class="wk-back">
         <p class="wk-back__h mono-label">Referenced by</p>
-        <div class="wk-back__list">
-          {%- if wk_backs_count > 0 -%}{{ wk_backs_html }}
-          {%- else -%}<span class="wk-back__none mono">Nothing yet — an orphan entry.</span>
-          {%- endif -%}
-        </div>
+        <div class="wk-back__list">{{ wk_backs_html }}</div>
       </div>
+      {%- endif %}
 
       <nav class="wk-pager mono-label" aria-label="Wiki sections">
         {%- if wk_g > 0 -%}
